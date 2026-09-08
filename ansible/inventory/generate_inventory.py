@@ -122,7 +122,7 @@ def yaml_scalar(v):
 
 if __name__ == "__main__":
     admin_user = os.environ.get("TF_VAR_admin_username", "azureuser")
-    ssh_key_path = os.environ.get("ANSIBLE_SSH_KEY", "~/.ssh/techsprint")
+    ssh_key_path = os.environ.get("ANSIBLE_SSH_KEY", "~/.ssh/techsprint_rsa")
 
     outputs = get_terraform_outputs()
     inventory = build_inventory(outputs, admin_user, ssh_key_path)
