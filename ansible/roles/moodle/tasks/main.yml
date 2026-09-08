@@ -1,0 +1,256 @@
+---
+# Instalacija Moodlea (PHP/Apache/MariaDB) na VM cija je pohrana vec
+# pripremljena rolom mount_storage (moodledata = Blob mount, MariaDB data dir
+# = data disk).
+
+# Moodle 5.1 zahtijeva PHP 8.2+. Rocky 9 AppStream default modul (php:8.1)
+# nije dovoljan - koristi se Remi repozitorij (standardni izvor modernih PHP
+# verzija za RHEL/Rocky) za PHP 8.3.
+- name: Ukloni PHP pakete iz eventualnog starijeg modula/streama
+  ansible.builtin.dnf:
+    name:
+      - php
+      - php-cli
+      - php-common
+      - php-mysqlnd
+      - php-gd
+      - php-xml
+      - php-mbstring
+      - php-curl
+      - php-zip
+      - php-intl
+      - php-soap
+      - php-opcache
+    state: absent
+
+- name: Dodaj Remi repozitorij
+  ansible.builtin.dnf:
+    name: https://rpms.remirepo.net/enterprise/remi-release-9.rpm
+    state: present
+    disable_gpg_check: true
+
+- name: Resetiraj default PHP modul stream
+  ansible.builtin.command: dnf module reset -y php
+  changed_when: true
+
+- name: Omoguci PHP 8.3 modul stream (Remi)
+  ansible.builtin.command: dnf module enable -y php:remi-8.3
+  changed_when: true
+
+- name: Instaliraj Apache, PHP 8.3 i potrebne ekstenzije
+  ansible.builtin.dnf:
+    name:
+      - httpd
+      - php
+      - php-cli
+      - php-common
+      - php-mysqlnd
+      - php-gd
+      - php-xml
+      - php-mbstring
+      - php-curl
+      - php-zip
+      - php-intl
+      - php-soap
+      - php-opcache
+      - unzip
+      - git
+    state: present
+
+- name: Postavi max_input_vars >= 5000 (Moodle zahtjev)
+  ansible.builtin.lineinfile:
+    path: /etc/php.ini
+    regexp: "^;?\\s*max_input_vars\\s*="
+    line: "max_input_vars = 5000"
+  notify: restart httpd
+
+- name: Instaliraj firewalld (nije na minimal cloud image-u)
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: Pokreni i omoguci firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: Otvori HTTP port u firewalld
+  ansible.builtin.command: firewall-cmd --permanent --add-service=http
+  register: firewalld_http
+  changed_when: "'ALREADY_ENABLED' not in firewalld_http.stderr"
+
+- name: Primijeni firewalld promjene
+  ansible.builtin.command: firewall-cmd --reload
+  changed_when: true
+
+# ---------------------------------------------------------------------------
+# MariaDB - datadir je vec mountan na data disk (mount_storage rola),
+# poklapa se s paketnim defaultom /var/lib/mysql pa nije potrebna dodatna
+# konfiguracija putanje. Moodle 5.1 zahtijeva MariaDB 10.11+, Rocky 9
+# AppStream default je 10.5 - koristi se sluzbeni MariaDB repo.
+# ---------------------------------------------------------------------------
+- name: Ukloni stari mariadb-server (AppStream, prenizak za Moodle 5.1)
+  ansible.builtin.dnf:
+    name: mariadb-server
+    state: absent
+
+- name: Dodaj sluzbeni MariaDB repozitorij (10.11)
+  ansible.builtin.yum_repository:
+    name: mariadb
+    description: MariaDB 10.11
+    baseurl: https://rpm.mariadb.org/10.11/rhel/$releasever/$basearch
+    gpgkey: https://rpm.mariadb.org/RPM-GPG-KEY-MariaDB
+    gpgcheck: true
+
+- name: Instaliraj MariaDB 10.11
+  ansible.builtin.dnf:
+    name: MariaDB-server
+    state: present
+    disable_gpg_check: true
+
+- name: Popravi vlasnistvo /var/lib/mysql nakon mounta (prije inicijalizacije)
+  ansible.builtin.file:
+    path: "{{ mariadb_datadir }}"
+    owner: mysql
+    group: mysql
+    mode: "0755"
+
+- name: Provjeri je li MariaDB 10.11 vec inicijaliziran (nas marker)
+  ansible.builtin.stat:
+    path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
+  register: mariadb_1011_marker
+
+- name: Ocisti stare (10.5) sistemske tablice - nekompatibilne s 10.11 (samo jednom)
+  ansible.builtin.shell: rm -rf {{ mariadb_datadir }}/*
+  when: not mariadb_1011_marker.stat.exists
+
+- name: Inicijaliziraj MariaDB sistemske tablice (idempotentno)
+  ansible.builtin.command: >
+    mariadb-install-db --datadir={{ mariadb_datadir }} --user=mysql
+  args:
+    creates: "{{ mariadb_datadir }}/mysql/user.MYD"
+
+- name: Oznaci da je MariaDB 10.11 inicijalizacija zavrsena
+  ansible.builtin.file:
+    path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
+    state: touch
+    owner: mysql
+    group: mysql
+
+- name: Pokreni i omoguci MariaDB
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Kreiraj Moodle bazu podataka
+  ansible.builtin.command: >
+    mysql -e "CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }}
+    CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  changed_when: true
+
+- name: Kreiraj Moodle DB korisnika i dodijeli prava (samo na moodle bazu)
+  ansible.builtin.command: >
+    mysql -e "CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'localhost'
+    IDENTIFIED BY '{{ moodle_db_password }}';
+    GRANT ALL PRIVILEGES ON {{ moodle_db_name }}.* TO '{{ moodle_db_user }}'@'localhost';
+    FLUSH PRIVILEGES;"
+  no_log: true
+  changed_when: true
+
+# ---------------------------------------------------------------------------
+# Moodle kod + config, dataroot pokazuje na blobfuse2-mountani direktorij
+# (objektna pohrana, vidi mount_storage rolu).
+# ---------------------------------------------------------------------------
+- name: Dozvoli git operacije nad moodle_webroot (dubious ownership fix)
+  ansible.builtin.command: git config --global --add safe.directory {{ moodle_webroot }}
+  changed_when: true
+
+- name: Preuzmi Moodle izvorni kod (git, tocan stabilni tag)
+  ansible.builtin.git:
+    repo: https://github.com/moodle/moodle.git
+    dest: "{{ moodle_webroot }}"
+    version: "{{ moodle_version }}"
+    depth: 1
+  become_user: root
+
+- name: Postavi vlasnistvo Moodle koda na apache
+  ansible.builtin.file:
+    path: "{{ moodle_webroot }}"
+    owner: apache
+    group: apache
+    recurse: true
+
+- name: Postavi vlasnistvo moodledata (Blob mount) na apache
+  ansible.builtin.file:
+    path: "{{ moodle_dataroot }}"
+    owner: apache
+    group: apache
+    mode: "0770"
+
+- name: Generiraj Moodle config.php
+  ansible.builtin.template:
+    src: config.php.j2
+    dest: "{{ moodle_webroot }}/config.php"
+    owner: apache
+    group: apache
+    mode: "0640"
+  no_log: true
+
+- name: Generiraj Apache vhost za Moodle
+  ansible.builtin.template:
+    src: moodle.conf.j2
+    dest: /etc/httpd/conf.d/moodle.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart httpd
+
+- name: Instaliraj semanage alat (bez Python SELinux ovisnosti)
+  ansible.builtin.dnf:
+    name: policycoreutils-python-utils
+    state: present
+
+- name: Postavi SELinux context za httpd na Moodle webroot
+  ansible.builtin.command: >
+    semanage fcontext -a -t httpd_sys_rw_content_t "{{ moodle_webroot }}(/.*)?"
+  register: semanage_result
+  failed_when: semanage_result.rc != 0 and 'already defined' not in semanage_result.stderr
+  changed_when: semanage_result.rc == 0
+
+- name: Primijeni SELinux context (restorecon)
+  ansible.builtin.command: restorecon -Rv {{ moodle_webroot }}
+  changed_when: true
+
+- name: Pokreni i omoguci Apache
+  ansible.builtin.systemd:
+    name: httpd
+    state: started
+    enabled: true
+
+- name: Pokreni Moodle CLI instalaciju (idempotentno - preskace ako su tablice vec tu)
+  ansible.builtin.command: >
+    php admin/cli/install_database.php
+    --agree-license
+    --adminuser=admin --adminpass={{ moodle_admin_password }}
+    --adminemail=admin@techsprint.local
+    --fullname="{{ moodle_site_name }}" --shortname=TechSprint
+  args:
+    chdir: "{{ moodle_webroot }}"
+  register: moodle_install_result
+  failed_when: >
+    moodle_install_result.rc != 0 and
+    'already present' not in moodle_install_result.stderr
+  changed_when: moodle_install_result.rc == 0
+  no_log: true
+
+- name: Popravi vlasnistvo koda nakon instalacije (installer je pokrenut kao root)
+  ansible.builtin.file:
+    path: "{{ moodle_webroot }}"
+    owner: apache
+    group: apache
+    recurse: true
+  # moodle_dataroot (Blob mount) se namjerno ne dira ovdje - vec je
+  # vlasnistvo postavljeno u mount_storage roli, a rekurzivni chown na
+  # blobfuse2 mountu je nepotreban i moze biti spor/nepouzdan na FUSE sloju.

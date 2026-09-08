@@ -1,0 +1,23 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# Ansible
+ansible/inventory/hosts.yml
+*.retry
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Alati/instaleri - ne idu u repo (veliki binary fajlovi, nisu izvorni kod)
+terraform_1.14.7_windows_amd64/
+terraform_1.14.7_windows_amd64.zip
+VSCodeUserSetup-x64-1.111.0.exe
+novi file

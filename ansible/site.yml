@@ -1,0 +1,27 @@
+---
+# Glavni playbook. Pokreni nakon uspješnog `terraform apply` u azure-i4-terraform/:
+#
+#   python3 inventory/generate_inventory.py
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook site.yml
+#
+# Redoslijed je bitan: mount_storage MORA proći prije moodle role, jer Moodle
+# instalacija piše u moodledata (Blob mount) i koristi MariaDB data dir (data disk).
+
+- name: Priprema svih VM-ova (jump, lead, moodle)
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Mount pohrane na Moodle VM-ovima (data disk, Blob, Azure Files)
+  hosts: moodle
+  become: true
+  roles:
+    - mount_storage
+
+- name: Instalacija Moodlea
+  hosts: moodle
+  become: true
+  roles:
+    - moodle

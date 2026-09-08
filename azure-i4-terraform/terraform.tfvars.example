@@ -1,0 +1,8 @@
+# Kopiraj u terraform.tfvars i popuni. terraform.tfvars je u .gitignore (ne commita se).
+
+admin_ssh_public_key = "ssh-ed25519 AAAA... tvoj-komentar"
+# ili pročitaj direktno iz svog postojećeg ključa:
+# admin_ssh_public_key = file("~/.ssh/id_ed25519.pub")
+
+# Ograniči SSH na jump host samo sa svoje javne IP adrese prije stvarnog deploymenta:
+# jump_host_allowed_ssh_cidr = "203.0.113.4/32"

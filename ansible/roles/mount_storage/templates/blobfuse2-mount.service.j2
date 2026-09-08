@@ -1,0 +1,15 @@
+[Unit]
+Description=blobfuse2 mount za Moodle dataroot (Blob objektna pohrana, MSI auth)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/bin/mkdir -p {{ moodle_dataroot }}
+ExecStart=/usr/bin/blobfuse2 mount {{ moodle_dataroot }} --config-file=/etc/blobfuse2-moodledata.yaml -o allow_other
+ExecStop=/usr/bin/blobfuse2 unmount {{ moodle_dataroot }}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

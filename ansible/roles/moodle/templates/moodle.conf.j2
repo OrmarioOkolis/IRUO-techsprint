@@ -1,0 +1,12 @@
+Alias / {{ moodle_webroot }}/
+
+<Directory "{{ moodle_webroot }}">
+    Options -Indexes +FollowSymLinks
+    AllowOverride All
+    Require all granted
+    DirectoryIndex index.php
+</Directory>
+
+<Directory "{{ moodle_dataroot }}">
+    Require all denied
+</Directory>

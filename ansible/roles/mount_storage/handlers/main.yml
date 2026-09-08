@@ -1,0 +1,9 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart blobfuse2
+  ansible.builtin.systemd:
+    name: blobfuse2-moodledata.service
+    state: restarted

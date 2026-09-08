@@ -1,0 +1,116 @@
+<svg viewBox="0 0 1240 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Multi-region Azure hub-spoke deployment: a single jump host in Poland Central is the only publicly reachable resource; each developer's isolated environment lives in its own region, peered only to the hub, never to each other.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+
+  <!-- Internet -->
+  <text x="620" y="26" text-anchor="middle" font-size="13" fill="currentColor">Internet</text>
+  <line x1="620" y1="34" x2="620" y2="88" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="632" y="65" font-size="11" fill="currentColor">SSH:22 — jedini javni ulaz</text>
+
+  <!-- Hub region box -->
+  <rect x="360" y="90" width="520" height="160" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+  <text x="620" y="112" text-anchor="middle" font-size="13" font-weight="bold" fill="currentColor">POLAND CENTRAL — hub (10.20.0.0/24)</text>
+
+  <rect x="400" y="135" width="200" height="80" fill="none" stroke="#c0392b" stroke-width="2" rx="3"/>
+  <text x="500" y="160" text-anchor="middle" font-size="12" fill="currentColor">jump-shared-01</text>
+  <text x="500" y="178" text-anchor="middle" font-size="10.5" fill="currentColor">javni IP: 74.248.152.55</text>
+  <text x="500" y="194" text-anchor="middle" font-size="10.5" fill="currentColor">snet-jump 10.20.0.0/27</text>
+
+  <rect x="640" y="135" width="200" height="80" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="740" y="160" text-anchor="middle" font-size="12" fill="currentColor">lead-shared-01</text>
+  <text x="740" y="178" text-anchor="middle" font-size="10.5" fill="currentColor">bez javnog IP-a</text>
+  <text x="740" y="194" text-anchor="middle" font-size="10.5" fill="currentColor">snet-lead 10.20.0.32/27</text>
+
+  <!-- Peering arrows hub -> spokes -->
+  <line x1="470" y1="250" x2="280" y2="318" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="300" y="285" font-size="11" fill="currentColor" transform="rotate(-33 300 285)">VNet peering (global,</text>
+  <text x="300" y="299" font-size="11" fill="currentColor" transform="rotate(-33 300 299)">cross-region)</text>
+
+  <line x1="770" y1="250" x2="960" y2="318" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="940" y="285" font-size="11" fill="currentColor" transform="rotate(33 940 285)">VNet peering (global,</text>
+  <text x="940" y="299" font-size="11" fill="currentColor" transform="rotate(33 940 299)">cross-region)</text>
+
+  <!-- dev01 spoke: France Central -->
+  <rect x="30" y="320" width="580" height="440" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+  <text x="320" y="342" text-anchor="middle" font-size="13" font-weight="bold" fill="currentColor">FRANCE CENTRAL — dev01 (Luka Lukić) — VNet 10.21.1.0/24</text>
+
+  <rect x="70" y="362" width="500" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="320" y="392" text-anchor="middle" font-size="12" fill="currentColor">Internal LB (Standard) — 10.21.1.6 : 80</text>
+
+  <line x1="180" y1="412" x2="180" y2="440" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="188" y="430" font-size="10" fill="currentColor">backend pool</text>
+  <rect x="80" y="440" width="200" height="70" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="180" y="465" text-anchor="middle" font-size="11.5" fill="currentColor">moodle-dev01-01</text>
+  <text x="180" y="481" text-anchor="middle" font-size="10" fill="currentColor">B2s_v2 · 2 diska</text>
+  <text x="180" y="496" text-anchor="middle" font-size="10" fill="currentColor">10.21.1.5</text>
+
+  <line x1="460" y1="412" x2="460" y2="440" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="468" y="430" font-size="10" fill="currentColor">backend pool</text>
+  <rect x="360" y="440" width="200" height="70" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="460" y="465" text-anchor="middle" font-size="11.5" fill="currentColor">moodle-dev01-02</text>
+  <text x="460" y="481" text-anchor="middle" font-size="10" fill="currentColor">B2s_v2 · 2 diska</text>
+  <text x="460" y="496" text-anchor="middle" font-size="10" fill="currentColor">10.21.1.4</text>
+
+  <line x1="180" y1="510" x2="180" y2="545" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="460" y1="510" x2="460" y2="545" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="285" y="530" text-anchor="middle" font-size="10" fill="currentColor">Managed Identity (RBAC)</text>
+
+  <rect x="80" y="547" width="200" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="180" y="570" text-anchor="middle" font-size="11.5" fill="currentColor">Storage Account</text>
+  <text x="180" y="586" text-anchor="middle" font-size="10" fill="currentColor">Blob (moodledata) + Files</text>
+
+  <rect x="360" y="547" width="200" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="460" y="570" text-anchor="middle" font-size="11.5" fill="currentColor">Key Vault</text>
+  <text x="460" y="586" text-anchor="middle" font-size="10" fill="currentColor">SMB ključ za Files mount</text>
+
+  <text x="320" y="640" text-anchor="middle" font-size="10.5" fill="currentColor">NSG: SSH samo s hub CIDR-a (10.20.0.0/24) · HTTP samo unutar 10.21.1.0/24 + AzureLB probe</text>
+  <text x="320" y="660" text-anchor="middle" font-size="10.5" fill="currentColor">Storage network rules: default deny, dopušten samo snet-moodle-dev01 + deployer IP</text>
+
+  <!-- dev02 spoke: Sweden Central (mirrored) -->
+  <rect x="630" y="320" width="580" height="440" fill="none" stroke="currentColor" stroke-width="1.5" rx="4"/>
+  <text x="920" y="342" text-anchor="middle" font-size="13" font-weight="bold" fill="currentColor">SWEDEN CENTRAL — dev02 (Ivan Ivić) — VNet 10.21.2.0/24</text>
+
+  <rect x="670" y="362" width="500" height="50" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="920" y="392" text-anchor="middle" font-size="12" fill="currentColor">Internal LB (Standard) — 10.21.2.4 : 80</text>
+
+  <line x1="780" y1="412" x2="780" y2="440" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="788" y="430" font-size="10" fill="currentColor">backend pool</text>
+  <rect x="680" y="440" width="200" height="70" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="780" y="465" text-anchor="middle" font-size="11.5" fill="currentColor">moodle-dev02-01</text>
+  <text x="780" y="481" text-anchor="middle" font-size="10" fill="currentColor">B2s_v2 · 2 diska</text>
+  <text x="780" y="496" text-anchor="middle" font-size="10" fill="currentColor">10.21.2.5</text>
+
+  <line x1="1060" y1="412" x2="1060" y2="440" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="1068" y="430" font-size="10" fill="currentColor">backend pool</text>
+  <rect x="960" y="440" width="200" height="70" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="1060" y="465" text-anchor="middle" font-size="11.5" fill="currentColor">moodle-dev02-02</text>
+  <text x="1060" y="481" text-anchor="middle" font-size="10" fill="currentColor">B2s_v2 · 2 diska</text>
+  <text x="1060" y="496" text-anchor="middle" font-size="10" fill="currentColor">10.21.2.6</text>
+
+  <line x1="780" y1="510" x2="780" y2="545" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="1060" y1="510" x2="1060" y2="545" stroke="currentColor" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="885" y="530" text-anchor="middle" font-size="10" fill="currentColor">Managed Identity (RBAC)</text>
+
+  <rect x="680" y="547" width="200" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="780" y="570" text-anchor="middle" font-size="11.5" fill="currentColor">Storage Account</text>
+  <text x="780" y="586" text-anchor="middle" font-size="10" fill="currentColor">Blob (moodledata) + Files</text>
+
+  <rect x="960" y="547" width="200" height="60" fill="none" stroke="currentColor" stroke-width="1.5" rx="3"/>
+  <text x="1060" y="570" text-anchor="middle" font-size="11.5" fill="currentColor">Key Vault</text>
+  <text x="1060" y="586" text-anchor="middle" font-size="10" fill="currentColor">SMB ključ za Files mount</text>
+
+  <text x="920" y="640" text-anchor="middle" font-size="10.5" fill="currentColor">NSG: SSH samo s hub CIDR-a (10.20.0.0/24) · HTTP samo unutar 10.21.2.0/24 + AzureLB probe</text>
+  <text x="920" y="660" text-anchor="middle" font-size="10.5" fill="currentColor">Storage network rules: default deny, dopušten samo snet-moodle-dev02 + deployer IP</text>
+
+  <!-- Isolation boundary between dev01 and dev02 -->
+  <line x1="610" y1="540" x2="630" y2="540" stroke="#c0392b" stroke-width="2.5" stroke-dasharray="5,4"/>
+  <text x="620" y="520" text-anchor="middle" font-size="16" font-weight="bold" fill="#c0392b">✕</text>
+  <text x="620" y="700" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">nema peeringa</text>
+  <text x="620" y="715" text-anchor="middle" font-size="11" font-weight="bold" fill="#c0392b">dev01 ↔ dev02</text>
+
+  <!-- Caption -->
+  <text x="620" y="785" text-anchor="middle" font-size="11.5" fill="currentColor">Hub (jump+lead) u Poljskoj peeriran je zasebno sa svakim developerom u NJEGOVOJ regiji — developeri međusobno nisu peerirani.</text>
+</svg>

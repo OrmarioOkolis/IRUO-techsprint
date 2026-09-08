@@ -1,0 +1,27 @@
+allow-other: true
+
+logging:
+  type: syslog
+  level: log_warning
+
+components:
+  - libfuse
+  - file_cache
+  - attr_cache
+  - azstorage
+
+libfuse:
+  attribute-expiration-sec: 120
+  entry-expiration-sec: 120
+  default-permission: 0777
+
+file_cache:
+  path: {{ blobfuse_cache_dir }}
+  timeout-sec: 120
+
+azstorage:
+  type: block
+  account-name: {{ storage_account_name }}
+  container: moodledata
+  mode: msi
+  endpoint: https://{{ storage_account_name }}.blob.core.windows.net

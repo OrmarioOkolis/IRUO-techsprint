@@ -1,0 +1,172 @@
+---
+# Mount pohrane na Moodle VM: data disk (MariaDB), Blob preko Managed Identity
+# (objektna pohrana, moodledata), Azure Files preko Key Vault ključa (backup).
+# RBAC preduvjeti (Storage Blob Data Contributor, Key Vault Secrets User na
+# System-Assigned identity VM-a) su vec postavljeni u azure-i4-terraform/vm.tf.
+
+- name: Instaliraj osnovne pakete (fuse, cifs, azure-cli repo preduvjeti)
+  ansible.builtin.dnf:
+    name:
+      - fuse3
+      - fuse3-libs
+      - cifs-utils
+      - parted
+    state: present
+
+# ---------------------------------------------------------------------------
+# 1) Data disk (LUN 0) -> MariaDB data dir. Odvojen fizicki disk od OS-a
+#    radi izolacije I/O-a baze podataka od OS diska (razlog naveden u I2/I4
+#    dokumentaciji uz "dva diska po instanci" zahtjev).
+# ---------------------------------------------------------------------------
+- name: Formatiraj data disk kao ext4 (ako vec nije formatiran)
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/disk/azure/scsi1/lun0
+
+- name: Kreiraj mount point za MariaDB data dir
+  ansible.builtin.file:
+    path: "{{ mariadb_datadir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mountaj data disk na MariaDB data dir (fstab + odmah)
+  ansible.posix.mount:
+    path: "{{ mariadb_datadir }}"
+    src: /dev/disk/azure/scsi1/lun0
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# ---------------------------------------------------------------------------
+# 2) Blob storage (objektna pohrana) preko blobfuse2 + Managed Identity.
+#    Nema kljuceva na disku - autentikacija ide preko VM System-Assigned
+#    identity kojoj je Terraform vec dodijelio "Storage Blob Data Contributor"
+#    scoped SAMO na storage account ovog developera (least-privilege).
+# ---------------------------------------------------------------------------
+- name: Dodaj Microsoft paket repozitorij (za blobfuse2)
+  ansible.builtin.dnf:
+    name: https://packages.microsoft.com/config/rhel/9.0/packages-microsoft-prod.rpm
+    state: present
+    disable_gpg_check: true
+
+- name: Instaliraj blobfuse2
+  ansible.builtin.dnf:
+    name: blobfuse2
+    state: present
+    update_cache: true
+
+- name: Omoguci user_allow_other u /etc/fuse.conf (sistemski preduvjet za allow-other)
+  ansible.builtin.lineinfile:
+    path: /etc/fuse.conf
+    regexp: "^#?\\s*user_allow_other"
+    line: "user_allow_other"
+  notify: restart blobfuse2
+
+- name: Kreiraj moodledata direktorij (mount point za Blob)
+  ansible.builtin.file:
+    path: "{{ moodle_dataroot }}"
+    state: directory
+    owner: "{{ azure_admin_username }}"
+    group: "{{ azure_admin_username }}"
+    mode: "0770"
+
+- name: Kreiraj blobfuse2 cache direktorij
+  ansible.builtin.file:
+    path: "{{ blobfuse_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generiraj blobfuse2 config (MSI auth, bez tajni na disku)
+  ansible.builtin.template:
+    src: blobfuse2-config.yaml.j2
+    dest: /etc/blobfuse2-moodledata.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart blobfuse2
+
+- name: Instaliraj systemd unit za blobfuse2 mount (perzistentno preko reboota)
+  ansible.builtin.template:
+    src: blobfuse2-mount.service.j2
+    dest: /etc/systemd/system/blobfuse2-moodledata.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart blobfuse2
+
+- name: Pokreni i omoguci blobfuse2 mount servis
+  ansible.builtin.systemd:
+    name: blobfuse2-moodledata.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Omoguci httpd_use_fusefs SELinux boolean (Apache mora pisati na blobfuse2 mount)
+  ansible.builtin.command: setsebool -P httpd_use_fusefs on
+  changed_when: true
+
+# ---------------------------------------------------------------------------
+# 3) Azure Files (datotecna pohrana, backupi) preko SMB. Azure Files ne
+#    podrzava Managed Identity za SMB pa se storage account kljuc povlaci iz
+#    Key Vaulta (VM identity ima "Key Vault Secrets User" scoped na taj KV) -
+#    kljuc se NE unosi rucno niti se sprema u Terraform state kao plaintext.
+# ---------------------------------------------------------------------------
+- name: Dodaj Microsoft paket repozitorij (za azure-cli)
+  ansible.builtin.get_url:
+    url: https://packages.microsoft.com/config/rhel/9.0/packages-microsoft-prod.rpm
+    dest: /tmp/packages-microsoft-prod.rpm
+    mode: "0644"
+
+- name: Instaliraj azure-cli
+  ansible.builtin.dnf:
+    name: azure-cli
+    state: present
+    update_cache: true
+
+- name: Prijavi se na Azure preko Managed Identity
+  ansible.builtin.command: az login --identity
+  register: az_login
+  changed_when: false
+
+- name: Dohvati storage account key iz Key Vaulta
+  ansible.builtin.command: >
+    az keyvault secret show
+    --vault-name {{ key_vault_name }}
+    --name storage-account-key
+    --query value -o tsv
+  register: storage_key
+  changed_when: false
+  no_log: true
+
+- name: Kreiraj CIFS credentials fajl (600, samo root)
+  ansible.builtin.copy:
+    dest: /etc/smbcredentials-backups
+    content: |
+      username={{ storage_account_name }}
+      password={{ storage_key.stdout }}
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Kreiraj mount point za backup share
+  ansible.builtin.file:
+    path: "{{ backups_mountpoint }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Mountaj Azure Files share (backups) preko SMB
+  ansible.posix.mount:
+    path: "{{ backups_mountpoint }}"
+    src: "//{{ storage_account_name }}.file.core.windows.net/backups"
+    fstype: cifs
+    opts: "credentials=/etc/smbcredentials-backups,vers=3.0,dir_mode=0750,file_mode=0640,serverino"
+    state: mounted

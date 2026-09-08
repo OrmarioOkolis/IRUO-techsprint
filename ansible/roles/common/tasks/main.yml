@@ -1,0 +1,10 @@
+---
+- name: Azuriraj sve pakete
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
+- name: Postavi timezone na Europe/Zagreb
+  community.general.timezone:
+    name: Europe/Zagreb
