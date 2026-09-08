@@ -26,7 +26,18 @@ import csv
 import json
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
+
+
+_DJ_TRANSLATION = str.maketrans({"đ": "d", "Đ": "D"})  # dj/Dj nije NFKD-dekomponibilan
+
+
+def strip_diacritics(s: str) -> str:
+    """Skida dijakritike (č/ć/š/ž/đ...) radi usporedbe imena neovisno o tome
+    pise li ih CSV ili AAD displayName s njima ili bez njih."""
+    s = s.translate(_DJ_TRANSLATION)
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 I4_DIR = REPO_ROOT / "azure-i4-terraform"
@@ -89,7 +100,10 @@ def assign_dev_ids_and_regions(developers):
 def az_lookup_object_id(ime: str, prezime: str):
     """Dohvati (object_id, upn, displayName) postojeceg AAD korisnika. Filtrira po
     prefiksu imena preko Azure AD API-ja, pa lokalno provjerava da prezime bude
-    sadrzano u displayName (neovisno o redoslijedu ime/prezime u stvarnom displayName)."""
+    sadrzano u displayName (neovisno o redoslijedu ime/prezime u stvarnom displayName).
+    Usporedba ignorira dijakritike na obje strane - CSV moze pisati "Nikolis", a
+    pravi AAD displayName "Nikolis" (bez, npr. ako je "Nikolis" doslovno) ILI s
+    dijakritikom (npr. "Nikoliš") i i dalje ce se poklopiti."""
     result = subprocess.run(
         [
             "az", "ad", "user", "list",
@@ -97,14 +111,17 @@ def az_lookup_object_id(ime: str, prezime: str):
             "--query", "[].{id:id, displayName:displayName, upn:userPrincipalName}",
             "-o", "json",
         ],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8",
     )
     if result.returncode != 0:
         sys.exit(f"'az ad user list' nije uspio za '{ime} {prezime}':\n{result.stderr}")
 
     candidates = json.loads(result.stdout or "[]")
-    prezime_l = prezime.lower()
-    matches = [c for c in candidates if prezime_l in (c.get("displayName") or "").lower()]
+    prezime_l = strip_diacritics(prezime).lower()
+    matches = [
+        c for c in candidates
+        if prezime_l in strip_diacritics(c.get("displayName") or "").lower()
+    ]
 
     if not matches:
         sys.exit(
