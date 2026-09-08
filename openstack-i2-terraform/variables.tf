@@ -4,6 +4,23 @@ variable "project_name" {
   default     = "techsprint"
 }
 
+# ---------------------------------------------------------------------------
+# Octavia servis JE prisutan u katalogu (potvrdjeno service list), ali na RHA
+# CL110 sandboxu nije potpuno konfiguriran - LB kreiranje zavrsava u ERROR
+# statusu jer se nikad ne pokrene ni jedna amphora Nova instanca (potvrdjeno:
+# `openstack server list --all-projects | grep amphora` prazno, `openstack
+# flavor list` nema amphora flavor - Octavia-in amp_flavor_id u octavia.conf
+# vjerojatno pokazuje na obrisan/nepostojeci flavor). Ocekivano, jer CL110
+# kolegij uopce ne pokriva load balancing kao temu. Kod ostaje ispravan i
+# spreman za pravi RHOSP s ispravno konfiguriranom Octaviom - samo je default
+# iskljucen da apply ne pukne na ovom sandboxu. Vidi CLAUDE.md za puni nalaz.
+# ---------------------------------------------------------------------------
+variable "enable_octavia_lb" {
+  description = "Kreiraj Octavia LB (loadbalancer.tf). Default false - vidi napomenu iznad (potvrdjeno ERROR na RHA CL110 sandboxu, amp_flavor_id nedostaje)."
+  type        = bool
+  default     = false
+}
+
 variable "environment" {
   description = "Naziv okoline."
   type        = string

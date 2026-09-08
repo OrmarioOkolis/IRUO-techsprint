@@ -1,11 +1,21 @@
 # ---------------------------------------------------------------------------
-# Octavia LB (potvrdjeno dostupan servis na RHA sandboxu) po developeru -
-# prava LBaaS umjesto rucnog HAProxy-a, HA raspodjela preko 2 Moodle instance.
-# openstack_lb_* resursi podrzavaju tenant_id, pa idu ovdje (admin-scoped,
-# for_each), isto kao mrezni sloj - ne treba project-scoped provider.
+# Octavia LB po developeru - prava LBaaS umjesto rucnog HAProxy-a, HA
+# raspodjela preko 2 Moodle instance. openstack_lb_* resursi podrzavaju
+# tenant_id, pa idu ovdje (admin-scoped, for_each), isto kao mrezni sloj -
+# ne treba project-scoped provider.
+#
+# Iza var.enable_octavia_lb (default false) - vidi napomenu u variables.tf:
+# servis JE u katalogu ali nije potpuno konfiguriran na RHA CL110 sandboxu
+# (potvrdjeno ERROR provisioning_status, nikad se ne pokrene amphora Nova
+# instanca). Kod ostaje ispravan za pravi RHOSP deployment.
 # ---------------------------------------------------------------------------
+locals {
+  lb_developers_indexed = var.enable_octavia_lb ? local.developers_indexed : {}
+  lb_moodle_instances    = var.enable_octavia_lb ? local.moodle_instances : {}
+}
+
 resource "openstack_lb_loadbalancer_v2" "moodle" {
-  for_each = local.developers_indexed
+  for_each = local.lb_developers_indexed
 
   name          = "${local.name_prefix}-lb-${each.key}"
   tenant_id     = data.openstack_identity_project_v3.dev[each.key].id
@@ -13,7 +23,7 @@ resource "openstack_lb_loadbalancer_v2" "moodle" {
 }
 
 resource "openstack_lb_listener_v2" "moodle" {
-  for_each = local.developers_indexed
+  for_each = local.lb_developers_indexed
 
   name            = "${local.name_prefix}-listener-${each.key}"
   tenant_id       = data.openstack_identity_project_v3.dev[each.key].id
@@ -23,7 +33,7 @@ resource "openstack_lb_listener_v2" "moodle" {
 }
 
 resource "openstack_lb_pool_v2" "moodle" {
-  for_each = local.developers_indexed
+  for_each = local.lb_developers_indexed
 
   name        = "${local.name_prefix}-pool-${each.key}"
   tenant_id   = data.openstack_identity_project_v3.dev[each.key].id
@@ -33,7 +43,7 @@ resource "openstack_lb_pool_v2" "moodle" {
 }
 
 resource "openstack_lb_monitor_v2" "moodle" {
-  for_each = local.developers_indexed
+  for_each = local.lb_developers_indexed
 
   tenant_id      = data.openstack_identity_project_v3.dev[each.key].id
   pool_id        = openstack_lb_pool_v2.moodle[each.key].id
@@ -49,7 +59,7 @@ resource "openstack_lb_monitor_v2" "moodle" {
 # Clanovi pool-a - fixna IP se cita s unaprijed kreiranog porta (network.tf),
 # ne s Nova instance (koja jos ne postoji u ovom apply-u - vidi compute.tf).
 resource "openstack_lb_member_v2" "moodle" {
-  for_each = local.moodle_instances
+  for_each = local.lb_moodle_instances
 
   tenant_id     = data.openstack_identity_project_v3.dev[each.value.dev_id].id
   pool_id       = openstack_lb_pool_v2.moodle[each.value.dev_id].id
