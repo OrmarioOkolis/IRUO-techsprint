@@ -34,3 +34,7 @@ CLAUDE.md
 docs/IRUO-projekt-preview.docx
 projekt_template_algebra_bernays_HR_2025.docx
 IRUO_Projekt_2025_2026.pdf
+
+# Generirani izvjestaj (docs/generate_report.py je izvor istine, docx se
+# regenerira - ne commita se sam binarni fajl)
+docs/IRUO-projekt-izvjestaj.docx
