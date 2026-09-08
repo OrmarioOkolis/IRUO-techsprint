@@ -1,6 +1,9 @@
-Alias / {{ moodle_webroot }}/
+# Moodle 5.x premjestio je javno-dostupni kod u public/ poddirektorij (webroot
+# checkouta vise NIJE web-serviran direktno - vidi {{ moodle_webroot }}/index.php,
+# koji namjerno baca iznimku ako mu se pristupi izvan public/).
+Alias / {{ moodle_webroot }}/public/
 
-<Directory "{{ moodle_webroot }}">
+<Directory "{{ moodle_webroot }}/public">
     Options -Indexes +FollowSymLinks
     AllowOverride All
     Require all granted
