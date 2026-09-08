@@ -11,6 +11,9 @@ crash.*.log
 ansible/inventory/hosts.yml
 *.retry
 
+# CSV provisioning - stvarni popis (PII), primjer ostaje trackan
+scripts/users.csv
+
 # Editor / OS
 .vscode/
 .DS_Store
