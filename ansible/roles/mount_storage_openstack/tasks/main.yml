@@ -174,28 +174,11 @@
 #    prema dev mrezama). Nakon tog popravka isti `mount -t ceph` prolazi.
 #
 #    Cephx kljuc je vec generiran u Terraformu (share_access_v2 resurs) -
-#    Ansible ga samo cita i upisuje u secret fajl, ne generira ga sam. Kernel
-#    klijent NE koristi ceph-fuse keyring format ([client.xxx] sekcija) nego
-#    obican fajl koji sadrzi SAMO base64 kljuc (mount.ceph "secretfile"
-#    opcija) - razlicito od formata koji bi ceph-fuse ocekivao.
+#    Ansible ga samo cita, ne generira ga sam. Vidi napomenu nize (uz fstab
+#    task) zasto kljuc ide izravno u fstab "secret=" opciju, ne u zaseban
+#    keyring/secretfile - ceph-common paket (koji bi "secretfile=" preveo)
+#    ne postoji na ovom sandboxu.
 # ---------------------------------------------------------------------------
-- name: Kreiraj /etc/ceph direktorij
-  ansible.builtin.file:
-    path: /etc/ceph
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-
-- name: Zapisi cephx secret u zaseban fajl (kernel klijent - "secretfile", ne keyring)
-  ansible.builtin.copy:
-    dest: /etc/ceph/manila.secret
-    content: "{{ manila_access_key }}"
-    owner: root
-    group: root
-    mode: "0600"
-  no_log: true
-
 - name: Kreiraj backups mount point
   ansible.builtin.file:
     path: "{{ backups_mountpoint }}"
@@ -210,11 +193,37 @@
     manila_mon_addr: "{{ manila_export_path.split(':')[0] }}:{{ manila_export_path.split(':')[1] }}"
     manila_cephfs_path: "{{ manila_export_path.split(':', 2)[2] }}"
 
-- name: Dodaj Manila CephFS mount u /etc/fstab (kernel klijent, fstype "ceph")
+# ---------------------------------------------------------------------------
+# VAZNO otkrice (live testirano 9.9.2026, run nakon dev02 destroy/recreate):
+# fstab opcija "secretfile=" NE radi bez ceph-common paketa - tu opciju
+# prevodi u "secret=<kljuc>" userspace helper /sbin/mount.ceph (dio
+# ceph-common), a taj paket na ovom sandboxu ne postoji (isti razlog zasto
+# ceph-fuse nije koristen). Bez helpera mount(8) pada natrag na goli mount(2)
+# syscall koji doslovno prosljedjuje "secretfile=..." kernelu, koji tu opciju
+# ne razumije - rezultat je generican "wrong fs type, bad option, bad
+# superblock..." (standardna mount(2) EINVAL poruka, ne govori stvarni
+# uzrok). Kernel cephfs modul IZRAVNO razumije "secret=<kljuc>" (dokazano
+# ranije ovim istim manualnim testom preko `mount -t ceph ... -o
+# name=...,secret=...` koji je uspio nakon mreznog popravka) - pa se kljuc
+# upisuje izravno u fstab liniju, BEZ posrednog fajla/helpera. Kompromis:
+# /etc/fstab time postaje osjetljiv (sadrzi cephx kljuc), pa se odmah nakon
+# pooštrava na 0600 (root-only) - standardna praksa i za NFS/LUKS kljuceve
+# u fstabu na sigurnosno osvještenim sustavima, ne krsi nista sto ostali
+# alati ocekuju (mount/systemd citaju fstab kao root).
+# ---------------------------------------------------------------------------
+- name: Dodaj Manila CephFS mount u /etc/fstab (kernel klijent, fstype "ceph", secret izravno)
   ansible.builtin.lineinfile:
     path: /etc/fstab
     regexp: "^{{ manila_mon_addr }}:{{ manila_cephfs_path }}\\s"
-    line: "{{ manila_mon_addr }}:{{ manila_cephfs_path }}  {{ backups_mountpoint }}  ceph  name={{ manila_access_to }},secretfile=/etc/ceph/manila.secret,noatime,_netdev  0  0"
+    line: "{{ manila_mon_addr }}:{{ manila_cephfs_path }}  {{ backups_mountpoint }}  ceph  name={{ manila_access_to }},secret={{ manila_access_key }},noatime,_netdev  0  0"
+  no_log: true
+
+- name: Postavi /etc/fstab na 0600 (sadrzi cephx kljuc u plaintextu)
+  ansible.builtin.file:
+    path: /etc/fstab
+    owner: root
+    group: root
+    mode: "0600"
 
 - name: Mountaj sve iz fstab (idempotentno - ukljucuje i Manila share)
   command: mount -a
