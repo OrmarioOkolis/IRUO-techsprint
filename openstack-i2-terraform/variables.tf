@@ -33,6 +33,20 @@ variable "external_network_name" {
   default     = "provider-datacentre"
 }
 
+# ---------------------------------------------------------------------------
+# Postojeca RHA "provider" (fizicki mapirana) mreza na kojoj sjedi Ceph mon
+# backend (172.24.3.0/24, potvrdjeno live 9.9.2026: `openstack network show`
+# -> shared=True, router:external=False). Manila CephFS kernel klijent na
+# Moodle instancama treba DIREKTAN L2 pristup ovoj mrezi - vidi napomenu uz
+# openstack_networking_port_v2.moodle_storage u network.tf zasto obicno
+# rutiranje kroz dev router ne radi (asimetricna ruta).
+# ---------------------------------------------------------------------------
+variable "storage_network_name" {
+  description = "Naziv postojece RHA storage/Ceph mreze (provider-storage) - Moodle instance dobivaju drugi NIC izravno na ovu mrezu radi Manila CephFS mounta."
+  type        = string
+  default     = "provider-storage"
+}
+
 variable "image_name" {
   description = "OS image za sve VM-ove. Rocky Linux/CentOS nije dostupan na RHA CL110 sandboxu - koristi se rhel8 (dostupan, cloud-specijalizirana distribucija po zahtjevu zadatka)."
   type        = string

@@ -1,8 +1,13 @@
 # ---------------------------------------------------------------------------
-# Moodle instance (2x po developeru, HA simulacija) - jedan NIC na vlastitoj
-# dev mrezi, BEZ floating IP-a (nije javno dostupna - zahtjev zadatka: pristup
-# iskljucivo kroz jump host). Security grupa (SSH+HTTP samo unutar vlastite
-# subnet CIDR) je vec vezana na port u openstack-i2-terraform/network.tf.
+# Moodle instance (2x po developeru, HA simulacija) - PRVI NIC na vlastitoj
+# dev mrezi (primarni/default-route interface, BEZ floating IP-a - nije javno
+# dostupna, pristup iskljucivo kroz jump host), DRUGI NIC izravno na storage
+# mrezi (Ceph mon pristup za Manila CephFS mount - vidi opsirnu napomenu uz
+# openstack_networking_port_v2.moodle_storage u openstack-i2-terraform/network.tf;
+# redoslijed "network" blokova odredjuje redoslijed eth0/eth1, isti obrazac
+# kao jump host u openstack-compute-terraform/instances.tf). Security grupa
+# (SSH+HTTP samo unutar vlastite subnet CIDR) je vec vezana na prvi port u
+# openstack-i2-terraform/network.tf.
 # ---------------------------------------------------------------------------
 resource "openstack_compute_instance_v2" "moodle" {
   for_each = toset(local.moodle_keys)
@@ -15,5 +20,9 @@ resource "openstack_compute_instance_v2" "moodle" {
 
   network {
     port = data.openstack_networking_port_v2.moodle[each.key].id
+  }
+
+  network {
+    port = data.openstack_networking_port_v2.moodle_storage[each.key].id
   }
 }

@@ -7,8 +7,3 @@
   ansible.builtin.systemd:
     name: rclone-swift-moodledata.service
     state: restarted
-
-- name: restart ceph-fuse-manila
-  ansible.builtin.systemd:
-    name: ceph-fuse-manila.service
-    state: restarted

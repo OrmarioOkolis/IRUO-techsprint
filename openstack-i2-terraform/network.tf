@@ -201,6 +201,40 @@ resource "openstack_networking_secgroup_rule_v2" "moodle_http" {
   remote_ip_prefix   = openstack_networking_subnet_v2.dev[each.key].cidr
 }
 
+# ---------------------------------------------------------------------------
+# Moodle VM-ovi trebaju DIREKTAN L2 pristup Ceph mon mrezi (var.storage_network_name,
+# postojeca RHA "provider" - fizicki mapirana - mreza, 172.24.3.0/24) da bi
+# Manila CephFS kernel klijent mogao mountati share.
+#
+# LIVE TESTIRANO 9.9.2026: obicno rutiranje kroz dev router (dodavanje ove
+# mreze kao jos jednog router interfacea) NE RADI pouzdano - asimetricna ruta.
+# Neutron router SNAT-a promet SAMO prema external gateway sucelju (qg-), ne
+# izmedju dva interior (qr-) sucelja - pa bi promet prema 172.24.3.1 otisao s
+# nepromijenjenom izvornom IP (10.11.x.y), a fizicki Ceph/storage cvor NEMA
+# povratnu rutu do te privatne tenant mreze (nikad nije cuo za nju - to je
+# Neutron SDN konstrukt, ne postoji izvan njega). Zato je (isto kao jump
+# hostov dodatni NIC na svakoj dev mrezi - vec dokazano da radi, vidi
+# openstack-compute-terraform/instances.tf) svaka Moodle instanca dobiva
+# DRUGI NIC izravno na storage mrezi - L2-lokalna dostava (ARP), nema potrebe
+# ni za kakvim rutiranjem/SNAT-om, garantirano simetricno.
+# ---------------------------------------------------------------------------
+data "openstack_networking_network_v2" "storage" {
+  name = var.storage_network_name
+}
+
+resource "openstack_networking_port_v2" "moodle_storage" {
+  for_each = local.moodle_instances
+
+  name           = "${local.name_prefix}-port-moodle-${each.key}-storage"
+  tenant_id      = data.openstack_identity_project_v3.dev[each.value.dev_id].id
+  network_id     = data.openstack_networking_network_v2.storage.id
+  admin_state_up = true
+  # Bez security_group_ids namjerno - security grupe filtriraju samo promet
+  # prema/od VM vNIC-a, transit/router promet ne dira; ovaj port je obican
+  # drugi NIC na VM-u koji SAMO inicira odlazni promet prema Ceph mon/OSD-ovima
+  # (isto obrazloženje kao jump_to_dev port nize).
+}
+
 # Jump hostov dodatni port NA SVAKOJ dev mrezi - jedini most preko kojeg jump
 # host (fizicki u shared projektu) moze SSH-ati u izolirane dev mreze, bez da
 # se dev mreze ikad medjusobno L2/L3 povezu (svaka je spojena SAMO s jump

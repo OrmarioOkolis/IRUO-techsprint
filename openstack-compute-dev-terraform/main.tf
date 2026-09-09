@@ -75,3 +75,12 @@ data "openstack_networking_port_v2" "moodle" {
 
   name = "${local.name_prefix}-port-moodle-${each.key}"
 }
+
+# Drugi NIC - direktan L2 pristup Ceph mon/storage mrezi (Manila CephFS kernel
+# klijent). Vidi opsirnu napomenu uz openstack_networking_port_v2.moodle_storage
+# u openstack-i2-terraform/network.tf.
+data "openstack_networking_port_v2" "moodle_storage" {
+  for_each = toset(local.moodle_keys)
+
+  name = "${local.name_prefix}-port-moodle-${each.key}-storage"
+}

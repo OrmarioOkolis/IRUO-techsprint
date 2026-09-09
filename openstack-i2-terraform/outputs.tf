@@ -33,6 +33,11 @@ output "moodle_lb_vip_ips" {
   value       = { for k, lb in openstack_lb_loadbalancer_v2.moodle : k => lb.vip_address }
 }
 
+output "moodle_storage_port_ids" {
+  description = "Mapa 'dev01-01' -> ID drugog NIC porta (storage mreza, Ceph mon pristup za Manila) te Moodle instance."
+  value       = { for k, p in openstack_networking_port_v2.moodle_storage : k => p.id }
+}
+
 output "dev_network_ids" {
   description = "Mapa dev_id -> ID Neutron mreze developera (koristi compute modul)."
   value       = { for k, n in openstack_networking_network_v2.dev : k => n.id }

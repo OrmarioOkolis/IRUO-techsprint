@@ -153,15 +153,32 @@
   changed_when: true
 
 # ---------------------------------------------------------------------------
-# 3) Manila share (CephFS, datotecna pohrana - backupi) preko ceph-fuse.
+# 3) Manila share (CephFS, datotecna pohrana - backupi) preko KERNEL cephfs
+#    klijenta (mount -t ceph), NE preko ceph-fuse.
+#
+#    LIVE TESTIRANO 9.9.2026: `ceph-fuse` paket NE POSTOJI ni u jednom
+#    omogucenom repou na ovom RHA sandboxu (`dnf search ceph`/`dnf repolist`
+#    provjereno - nema dedicated Ceph/Storage repo). MEDJUTIM kernel CephFS
+#    modul (`ceph.ko.xz`) JE prisutan i ucitljiv nativno na RHEL8 image-u
+#    (`modinfo ceph` uspio) iako nikakav ceph-fuse/ceph-common/kmod-ceph paket
+#    nije instaliran - pa se koristi kernel klijent (`mount -t ceph`), ne
+#    treba NIKAKAV dodatni paket.
+#
+#    Prvi manualni test kernel mounta je pukao s "Connection timed out" - NE
+#    sintaksnom greskom - sto je otkrilo PRAVI uzrok: dev tenant mreza (samo
+#    default gateway + SNAT prema internetu) nema NIKAKVU rutu do Ceph mon
+#    mreze (var.storage_network_name, 172.24.3.0/24). Popravljeno na mreznom
+#    (Terraform) sloju - vidi openstack-i2-terraform/network.tf
+#    (openstack_networking_port_v2.moodle_storage) - Moodle instanca sad ima
+#    DRUGI NIC izravno na toj mrezi (isti obrazac kao jump hostov dodatni NIC
+#    prema dev mrezama). Nakon tog popravka isti `mount -t ceph` prolazi.
+#
 #    Cephx kljuc je vec generiran u Terraformu (share_access_v2 resurs) -
-#    Ansible ga samo cita i upisuje u keyring, ne generira ga sam.
+#    Ansible ga samo cita i upisuje u secret fajl, ne generira ga sam. Kernel
+#    klijent NE koristi ceph-fuse keyring format ([client.xxx] sekcija) nego
+#    obican fajl koji sadrzi SAMO base64 kljuc (mount.ceph "secretfile"
+#    opcija) - razlicito od formata koji bi ceph-fuse ocekivao.
 # ---------------------------------------------------------------------------
-- name: Instaliraj ceph-fuse
-  ansible.builtin.dnf:
-    name: ceph-fuse
-    state: present
-
 - name: Kreiraj /etc/ceph direktorij
   ansible.builtin.file:
     path: /etc/ceph
@@ -170,15 +187,14 @@
     group: root
     mode: "0755"
 
-- name: Generiraj cephx keyring za Manila access
-  ansible.builtin.template:
-    src: ceph-manila.keyring.j2
-    dest: /etc/ceph/manila.keyring
+- name: Zapisi cephx secret u zaseban fajl (kernel klijent - "secretfile", ne keyring)
+  ansible.builtin.copy:
+    dest: /etc/ceph/manila.secret
+    content: "{{ manila_access_key }}"
     owner: root
     group: root
     mode: "0600"
   no_log: true
-  notify: restart ceph-fuse-manila
 
 - name: Kreiraj backups mount point
   ansible.builtin.file:
@@ -194,20 +210,12 @@
     manila_mon_addr: "{{ manila_export_path.split(':')[0] }}:{{ manila_export_path.split(':')[1] }}"
     manila_cephfs_path: "{{ manila_export_path.split(':', 2)[2] }}"
 
-- name: Instaliraj systemd unit za ceph-fuse Manila mount
-  ansible.builtin.template:
-    src: ceph-fuse-manila.service.j2
-    dest: /etc/systemd/system/ceph-fuse-manila.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - reload systemd
-    - restart ceph-fuse-manila
+- name: Dodaj Manila CephFS mount u /etc/fstab (kernel klijent, fstype "ceph")
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^{{ manila_mon_addr }}:{{ manila_cephfs_path }}\\s"
+    line: "{{ manila_mon_addr }}:{{ manila_cephfs_path }}  {{ backups_mountpoint }}  ceph  name={{ manila_access_to }},secretfile=/etc/ceph/manila.secret,noatime,_netdev  0  0"
 
-- name: Pokreni i omoguci ceph-fuse Manila mount servis
-  ansible.builtin.systemd:
-    name: ceph-fuse-manila.service
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: Mountaj sve iz fstab (idempotentno - ukljucuje i Manila share)
+  command: mount -a
+  changed_when: false
