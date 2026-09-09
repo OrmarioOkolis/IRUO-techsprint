@@ -29,3 +29,20 @@ data "openstack_identity_role_v3" "member" {
 data "openstack_identity_role_v3" "admin" {
   name = "admin"
 }
+
+# ---------------------------------------------------------------------------
+# "swiftoperator" - RHOSP DEFAULT Swift proxy-server.conf ima
+# "operator_roles = admin, swiftoperator" - za razliku od Nova/Neutron/Cinder
+# (koji prepoznaju "member" kroz oslo.policy), Swift SVOJIM VLASTITIM
+# keystoneauth middlewareom zahtijeva bas jednu od te dvije role, ne "member".
+# Live testirano 9.9.2026: developer s "member" rolom je dobio "Operation
+# forbidden" pri pristupu VLASTITOM Swift kontejneru (preko rclone), dok je
+# admin (koji vec ima "admin" rolu) uspio - potvrdjuje RHOSP default
+# ponasanje. "swiftoperator" je manje-privilegirana opcija od "admin" (bez
+# nje developer NE bi trebao imati potpunu Nova/Neutron kontrolu koju "admin"
+# rola nosi na svom projektu), pa se dodaje kao dodatna rola SAMO za Swift
+# pristup, ne zamjena za "member".
+# ---------------------------------------------------------------------------
+data "openstack_identity_role_v3" "swiftoperator" {
+  name = "swiftoperator"
+}

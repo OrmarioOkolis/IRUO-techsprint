@@ -20,6 +20,17 @@ resource "openstack_identity_role_assignment_v3" "developer_member" {
   role_id    = data.openstack_identity_role_v3.member.id
 }
 
+# "member" je dovoljna za Nova/Neutron/Cinder/Manila self-service, ali Swift
+# SVOJIM VLASTITIM operator_roles zahtijeva "admin" ili "swiftoperator" - vidi
+# opsirnu napomenu uz data.openstack_identity_role_v3.swiftoperator u roles.tf.
+resource "openstack_identity_role_assignment_v3" "developer_swiftoperator" {
+  for_each = local.developers_indexed
+
+  user_id    = openstack_identity_user_v3.developer[each.key].id
+  project_id = openstack_identity_project_v3.dev[each.key].id
+  role_id    = data.openstack_identity_role_v3.swiftoperator.id
+}
+
 # ---------------------------------------------------------------------------
 # Lead: "member" na shared projektu (vlastiti prostor za jump/lead VM) + "admin"
 # na SVAKOM developer projektu (potpuna kontrola/power-state nad svim VM-ovima
