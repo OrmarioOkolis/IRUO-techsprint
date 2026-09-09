@@ -188,8 +188,12 @@
     disablerepo: "*appstream*"
 
 - name: Provjeri je li MariaDB-server vec instaliran
-  ansible.builtin.command:
-    cmd: rpm -q MariaDB-server
+  # Kratko ime ("command:", ne "ansible.builtin.command:") - isti FQCN+
+  # dict-cmd+extra-kljuc bug kao svugdje drugdje u ovom projektu na
+  # Ansible 2.9.11 (RHA workstation) - vidi CLAUDE.md/common rolu. Ovdje
+  # se manifestirao drukcije nego ranije: task se TIHO "preskace" (register
+  # var zavrsi bez "rc" atributa) umjesto eksplicitne "extra params" greske.
+  command: rpm -q MariaDB-server
   register: mariadb_server_rpm
   failed_when: false
   changed_when: false
