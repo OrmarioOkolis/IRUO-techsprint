@@ -143,6 +143,21 @@
     name: mariadb-server
     state: absent
 
+# ---------------------------------------------------------------------------
+# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu (nakon EPEL/php-gd
+# fixa): "MariaDB-server All matches were filtered out by modular filtering"
+# - RHEL8 AppStream ima ugradjeni "mariadb" MODUL (stream 10.3 defaultno
+# omogucen), a DNF modularno filtriranje SAKRIJE svaki paket s istim imenom
+# iz BILO KOJEG repoa (ukljucujuci nas dodani mariadb.org repo) dok je taj
+# modul aktivan - isti obrazac problema kao php modul ranije (vidi "Omoguci
+# PHP 8.3 modul stream"), samo za mariadb. Bez reset/disable ovdje, "Instaliraj
+# MariaDB 10.11" pada bez obzira sto repo/paket postoje.
+# ---------------------------------------------------------------------------
+- name: Onemoguci mariadb AppStream modul (blokira nas repo modularnim filtriranjem)
+  command:
+    cmd: dnf module disable -y mariadb
+  changed_when: true
+
 - name: Dodaj sluzbeni MariaDB repozitorij (10.11)
   ansible.builtin.yum_repository:
     name: mariadb
