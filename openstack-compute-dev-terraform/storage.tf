@@ -29,14 +29,22 @@ resource "openstack_objectstorage_container_v1" "moodle_objects" {
 }
 
 # ---------------------------------------------------------------------------
-# Datotecna pohrana (Manila NFS share) - backupi, dijeljeni preko obje Moodle
+# Datotecna pohrana (Manila share) - backupi, dijeljeni preko obje Moodle
 # instance developera preko iste dev mreze (mount na obje instance - Ansible
-# zadatak). NIJE JOS LIVE TESTIRANO na RHA sandboxu (za razliku od Octavia LB
-# gdje smo unaprijed znali da ne radi - ovdje jednostavno ne znamo dok se ne
-# proba). Ako sharenetwork/share pukne (npr. driver ne podrzava
-# driver_handles_share_servers ili share_type nije ispravan), provjeri
-# `openstack share type list` i `openstack share network list` pa prilagodi
-# var.manila_share_type.
+# zadatak).
+#
+# LIVE TESTIRANO 9.9.2026: prvi pokusaj s NFS protokolom je pukao -
+# `Error creating share: badRequest (400): Invalid share protocol provided:
+# NFS. It is either disabled or unsupported. Available protocols: ['CEPHFS']`
+# - ovaj RHA CL110 sandbox ima Manila backend konfiguriran SAMO za CephFS, ne
+# NFS (ocekivano razlicito od produkcijskog RHOSP-a, ali ovo je stvarno stanje
+# sandboxa). sharenetwork (driver_handles_share_servers) je uspjesno kreiran
+# PRIJE ovog erora, pa ostaje - CephFS native driver ga prihvaca iako ga
+# tipicno ne koristi za DHSS (RHA specificna konfiguracija).
+#
+# VAZNO za buduci Ansible mount zadatak: CephFS se NE mounta kao obican NFS
+# (`mount -t nfs`) - treba ceph-fuse ili kernel cephfs client + ceph kljuc,
+# razlicito od standardnog NFS mounta. To je odvojen (buduci) Ansible zadatak.
 # ---------------------------------------------------------------------------
 resource "openstack_sharedfilesystem_sharenetwork_v2" "dev" {
   name              = "${local.name_prefix}-sharenet-${var.dev_id}"
@@ -46,7 +54,7 @@ resource "openstack_sharedfilesystem_sharenetwork_v2" "dev" {
 
 resource "openstack_sharedfilesystem_share_v2" "backups" {
   name             = "${local.name_prefix}-backups-${var.dev_id}"
-  share_proto      = "NFS"
+  share_proto      = "CEPHFS"
   size             = var.manila_share_size_gb
   share_network_id = openstack_sharedfilesystem_sharenetwork_v2.dev.id
   share_type       = var.manila_share_type != "" ? var.manila_share_type : null
