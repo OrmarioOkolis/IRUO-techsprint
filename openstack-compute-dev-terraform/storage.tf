@@ -33,29 +33,36 @@ resource "openstack_objectstorage_container_v1" "moodle_objects" {
 # instance developera preko iste dev mreze (mount na obje instance - Ansible
 # zadatak).
 #
-# LIVE TESTIRANO 9.9.2026: prvi pokusaj s NFS protokolom je pukao -
-# `Error creating share: badRequest (400): Invalid share protocol provided:
-# NFS. It is either disabled or unsupported. Available protocols: ['CEPHFS']`
-# - ovaj RHA CL110 sandbox ima Manila backend konfiguriran SAMO za CephFS, ne
-# NFS (ocekivano razlicito od produkcijskog RHOSP-a, ali ovo je stvarno stanje
-# sandboxa). sharenetwork (driver_handles_share_servers) je uspjesno kreiran
-# PRIJE ovog erora, pa ostaje - CephFS native driver ga prihvaca iako ga
-# tipicno ne koristi za DHSS (RHA specificna konfiguracija).
+# LIVE TESTIRANO 9.9.2026, dva ispravljena nalaza redom:
+# 1. `share_proto = "NFS"` je pukao - "Invalid share protocol provided: NFS.
+#    Available protocols: ['CEPHFS']". Ovaj RHA CL110 sandbox ima Manila
+#    backend konfiguriran SAMO za CephFS (native driver, provjereno preko
+#    `manila pool-list --detail`: storage_protocol=CEPHFS, vendor=Ceph,
+#    driver_handles_share_servers=False). Ispravljeno na "CEPHFS".
+# 2. Prvi pokusaj je JOS uvijek pukao s praznim `host` (scheduler nije
+#    dodijelio backend) - uzrok: na sandboxu NIJE postojao NIJEDAN share type
+#    (`manila type-list` prazan), pa scheduler nema kriterij za usmjeravanje.
+#    Kreiran administrativno preko `manila type-create techsprint-cephfs False`
+#    (DHSS=False, mora se poklapati s poolom) - proslijedjen kao
+#    var.manila_share_type. NAPOMENA za CSV/provision.py: ovaj share type MORA
+#    postojati PRIJE prvog apply-a ovog modula (jednokratni admin setup, kao
+#    custom flavor - trenutno rucno kreiran, kandidat da se prebaci u
+#    openstack-compute-terraform kao openstack_sharedfilesystem_sharetype_v2
+#    ako provider tu resource podrzava).
+# 3. S ispravnim protokolom i share_type-om, JOS uvijek je pukao -
+#    "Driver does not expect share-network to be provided with current
+#    configuration" - jer je driver_handles_share_servers=False (CephFS native
+#    driver NE koristi share network uopce, za razliku od DHSS=True drivera
+#    poput generic NFS). Sharenetwork resurs je zato UKLONJEN (ne samo
+#    neiskoristen - aktivno je uzrokovao grešku ako se proslijedi).
 #
 # VAZNO za buduci Ansible mount zadatak: CephFS se NE mounta kao obican NFS
 # (`mount -t nfs`) - treba ceph-fuse ili kernel cephfs client + ceph kljuc,
 # razlicito od standardnog NFS mounta. To je odvojen (buduci) Ansible zadatak.
 # ---------------------------------------------------------------------------
-resource "openstack_sharedfilesystem_sharenetwork_v2" "dev" {
-  name              = "${local.name_prefix}-sharenet-${var.dev_id}"
-  neutron_net_id    = data.openstack_networking_network_v2.dev.id
-  neutron_subnet_id = data.openstack_networking_subnet_v2.dev.id
-}
-
 resource "openstack_sharedfilesystem_share_v2" "backups" {
-  name             = "${local.name_prefix}-backups-${var.dev_id}"
-  share_proto      = "CEPHFS"
-  size             = var.manila_share_size_gb
-  share_network_id = openstack_sharedfilesystem_sharenetwork_v2.dev.id
-  share_type       = var.manila_share_type != "" ? var.manila_share_type : null
+  name        = "${local.name_prefix}-backups-${var.dev_id}"
+  share_proto = "CEPHFS"
+  size        = var.manila_share_size_gb
+  share_type  = var.manila_share_type != "" ? var.manila_share_type : null
 }

@@ -75,11 +75,3 @@ data "openstack_networking_port_v2" "moodle" {
 
   name = "${local.name_prefix}-port-moodle-${each.key}"
 }
-
-data "openstack_networking_network_v2" "dev" {
-  name = "${local.name_prefix}-net-${var.dev_id}"
-}
-
-data "openstack_networking_subnet_v2" "dev" {
-  name = "${local.name_prefix}-subnet-${var.dev_id}"
-}
