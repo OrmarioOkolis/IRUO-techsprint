@@ -38,3 +38,23 @@ resource "openstack_identity_role_assignment_v3" "lead_dev_admin" {
   project_id = openstack_identity_project_v3.dev[each.key].id
   role_id    = data.openstack_identity_role_v3.admin.id
 }
+
+# ---------------------------------------------------------------------------
+# Admin operater (admin-rc) treba "admin" rolu EKSPLICITNO na shared + svakom
+# dev projektu, inace ne moze dobiti project-scoped token tamo (vidi napomenu
+# uz data.openstack_identity_user_v3.admin_operator u main.tf) - potreban za
+# openstack-compute-terraform (Nova instance, project-scoped provider).
+# ---------------------------------------------------------------------------
+resource "openstack_identity_role_assignment_v3" "admin_operator_shared" {
+  user_id    = data.openstack_identity_user_v3.admin_operator.id
+  project_id = openstack_identity_project_v3.shared.id
+  role_id    = data.openstack_identity_role_v3.admin.id
+}
+
+resource "openstack_identity_role_assignment_v3" "admin_operator_dev" {
+  for_each = local.developers_indexed
+
+  user_id    = data.openstack_identity_user_v3.admin_operator.id
+  project_id = openstack_identity_project_v3.dev[each.key].id
+  role_id    = data.openstack_identity_role_v3.admin.id
+}

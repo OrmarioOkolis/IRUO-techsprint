@@ -17,12 +17,12 @@ resource "random_password" "developer" {
 resource "openstack_identity_user_v3" "developer" {
   for_each = local.developers_indexed
 
-  name                = each.key
-  description         = "TechSprint developer: ${each.value.name}"
-  domain_id           = local.domain_id
-  default_project_id  = openstack_identity_project_v3.dev[each.key].id
-  password            = random_password.developer[each.key].result
-  enabled             = true
+  name               = each.key
+  description        = "TechSprint developer: ${each.value.name}"
+  domain_id          = local.domain_id
+  default_project_id = openstack_identity_project_v3.dev[each.key].id
+  password           = random_password.developer[each.key].result
+  enabled            = true
 }
 
 resource "random_password" "lead" {
@@ -31,10 +31,10 @@ resource "random_password" "lead" {
 }
 
 resource "openstack_identity_user_v3" "lead" {
-  name                = "lead"
-  description         = "TechSprint DevOps Lead: ${var.lead.name}"
-  domain_id           = local.domain_id
-  default_project_id  = openstack_identity_project_v3.shared.id
-  password            = random_password.lead.result
-  enabled             = true
+  name               = "lead"
+  description        = "TechSprint DevOps Lead: ${var.lead.name}"
+  domain_id          = local.domain_id
+  default_project_id = openstack_identity_project_v3.shared.id
+  password           = random_password.lead.result
+  enabled            = true
 }

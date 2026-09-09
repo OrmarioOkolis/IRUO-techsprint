@@ -39,12 +39,12 @@ resource "openstack_compute_quotaset_v2" "dev" {
 resource "openstack_networking_quota_v2" "dev" {
   for_each = local.developers_indexed
 
-  project_id = openstack_identity_project_v3.dev[each.key].id
-  network    = 2
-  subnet     = 2
-  router     = 1
-  port       = 10
-  floatingip = 0 # dev projekti namjerno bez floating IP-a - pristup samo preko jump hosta
+  project_id          = openstack_identity_project_v3.dev[each.key].id
+  network             = 2
+  subnet              = 2
+  router              = 1
+  port                = 10
+  floatingip          = 0 # dev projekti namjerno bez floating IP-a - pristup samo preko jump hosta
   security_group      = 5
   security_group_rule = 40
 }
