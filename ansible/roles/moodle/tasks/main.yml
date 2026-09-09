@@ -143,21 +143,6 @@
     name: mariadb-server
     state: absent
 
-# ---------------------------------------------------------------------------
-# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu (nakon EPEL/php-gd
-# fixa): "MariaDB-server All matches were filtered out by modular filtering"
-# - RHEL8 AppStream ima ugradjeni "mariadb" MODUL (stream 10.3 defaultno
-# omogucen), a DNF modularno filtriranje SAKRIJE svaki paket s istim imenom
-# iz BILO KOJEG repoa (ukljucujuci nas dodani mariadb.org repo) dok je taj
-# modul aktivan - isti obrazac problema kao php modul ranije (vidi "Omoguci
-# PHP 8.3 modul stream"), samo za mariadb. Bez reset/disable ovdje, "Instaliraj
-# MariaDB 10.11" pada bez obzira sto repo/paket postoje.
-# ---------------------------------------------------------------------------
-- name: Onemoguci mariadb AppStream modul (blokira nas repo modularnim filtriranjem)
-  command:
-    cmd: dnf module disable -y mariadb
-  changed_when: true
-
 - name: Dodaj sluzbeni MariaDB repozitorij (10.11)
   ansible.builtin.yum_repository:
     name: mariadb
@@ -166,11 +151,67 @@
     gpgkey: https://rpm.mariadb.org/RPM-GPG-KEY-MariaDB
     gpgcheck: true
 
-- name: Instaliraj MariaDB 10.11
+# ---------------------------------------------------------------------------
+# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu, TRI odvojena nalaza
+# redom (nakon EPEL/php-gd fixa):
+# 1. "MariaDB-server All matches were filtered out by modular filtering" -
+#    RHEL8 AppStream ima ugradjeni "mariadb" MODUL (stream 10.3). DNF
+#    modularno filtriranje sakriva paket s istim imenom iz SVIH repoa
+#    (ukljucujuci mariadb.org) DOK JE TAJ MODUL PRISUTAN - cak i kad je
+#    eksplicitno "disable"-an (`dnf module disable` suprotno intuiciji NE
+#    oslobadja namespace za non-modularne pakete, samo blokira instalaciju
+#    IZ modula). Jedini pouzdan nacin zaobici modularno filtriranje je
+#    --disablerepo na sam AppStream repo za trajanje ovog installa.
+# 2. MariaDB-server ima hard "Requires: galera-4" (Galera cluster
+#    replikacija - ne trebamo je, single-node instanca), a galera-4 na ovom
+#    starom RHEL8.2 image-u zahtijeva libboost_program_options.so.1.66
+#    kojeg nema ni u jednom dostupnom repou (isti "star image, nov paket"
+#    obrazac kao Remi/php-gd problemi ranije). --skip-broken/--nobest ne
+#    pomazu (dnf odbija CIJELI paket) - jedini nacin je rpm -Uvh --nodeps
+#    izravno na server RPM (zaobilazi dnf-ov depsolver potpuno), preuzet
+#    posebno preko `dnf download`.
+# 3. rpm --nodeps na SAM server RPM izostavlja i pakete koje STVARNO treba
+#    (MariaDB-common/-client/-shared - "my_print_defaults" i sl. alati
+#    potrebni inicijalizacijskoj skripti) jer --nodeps ne instalira NIKAKVE
+#    ovisnosti, ne samo galeru. Ti paketi NEMAJU galera/boost problem pa se
+#    instaliraju normalno preko dnf (samo s --disablerepo za appstream), PA
+#    TEK ONDA server preko rpm --nodeps.
+# ---------------------------------------------------------------------------
+- name: Instaliraj MariaDB-common/client/shared (bez appstream modularnog filtriranja)
   ansible.builtin.dnf:
-    name: MariaDB-server
+    name:
+      - MariaDB-common
+      - MariaDB-client
+      - MariaDB-shared
     state: present
     disable_gpg_check: true
+    disablerepo: "*appstream*"
+
+- name: Provjeri je li MariaDB-server vec instaliran
+  ansible.builtin.command:
+    cmd: rpm -q MariaDB-server
+  register: mariadb_server_rpm
+  failed_when: false
+  changed_when: false
+
+- name: Kreiraj privremeni direktorij za preuzimanje MariaDB-server RPM-a
+  ansible.builtin.file:
+    path: /tmp/mariadb-server-rpm
+    state: directory
+    mode: "0755"
+  when: mariadb_server_rpm.rc != 0
+
+- name: Preuzmi MariaDB-server RPM (za rucnu instalaciju bez galera ovisnosti)
+  command:
+    cmd: dnf download MariaDB-server --disablerepo="*appstream*" --destdir=/tmp/mariadb-server-rpm
+  when: mariadb_server_rpm.rc != 0
+  changed_when: true
+
+- name: 'Instaliraj MariaDB-server (rpm --nodeps - zaobilazi hard "Requires: galera-4")'
+  shell:
+    cmd: rpm -Uvh --nodeps /tmp/mariadb-server-rpm/MariaDB-server-*.rpm
+  when: mariadb_server_rpm.rc != 0
+  changed_when: true
 
 - name: Popravi vlasnistvo /var/lib/mysql nakon mounta (prije inicijalizacije)
   ansible.builtin.file:
