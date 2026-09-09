@@ -35,12 +35,12 @@
   # cmd: dict oblik namjerno, ne free-form string - Ansible 2.9 (RHA
   # workstation) ne podrzava FQCN modul + free-form string + extra kljuc u
   # istom tasku. Vidi CLAUDE.md (live otkriveno 9.9.2026).
-  ansible.builtin.command:
+  command:
     cmd: dnf module reset -y php
   changed_when: true
 
 - name: Omoguci PHP 8.3 modul stream (Remi)
-  ansible.builtin.command:
+  command:
     cmd: dnf module enable -y php:remi-8.3
   changed_when: true
 
@@ -83,13 +83,13 @@
     enabled: true
 
 - name: Otvori HTTP port u firewalld
-  ansible.builtin.command:
+  command:
     cmd: firewall-cmd --permanent --add-service=http
   register: firewalld_http
   changed_when: "'ALREADY_ENABLED' not in firewalld_http.stderr"
 
 - name: Primijeni firewalld promjene
-  ansible.builtin.command:
+  command:
     cmd: firewall-cmd --reload
   changed_when: true
 
@@ -131,12 +131,12 @@
   register: mariadb_1011_marker
 
 - name: Ocisti stare (10.5) sistemske tablice - nekompatibilne s 10.11 (samo jednom)
-  ansible.builtin.shell:
+  shell:
     cmd: rm -rf {{ mariadb_datadir }}/*
   when: not mariadb_1011_marker.stat.exists
 
 - name: Inicijaliziraj MariaDB sistemske tablice (idempotentno)
-  ansible.builtin.command:
+  command:
     cmd: mariadb-install-db --datadir={{ mariadb_datadir }} --user=mysql
     creates: "{{ mariadb_datadir }}/mysql/user.MYD"
 
@@ -154,14 +154,14 @@
     enabled: true
 
 - name: Kreiraj Moodle bazu podataka
-  ansible.builtin.command:
+  command:
     cmd: >
       mysql -e "CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }}
       CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
   changed_when: true
 
 - name: Kreiraj Moodle DB korisnika i dodijeli prava (samo na moodle bazu)
-  ansible.builtin.command:
+  command:
     cmd: >
       mysql -e "CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'localhost'
       IDENTIFIED BY '{{ moodle_db_password }}';
@@ -175,7 +175,7 @@
 # (objektna pohrana, vidi mount_storage rolu).
 # ---------------------------------------------------------------------------
 - name: Dozvoli git operacije nad moodle_webroot (dubious ownership fix)
-  ansible.builtin.command:
+  command:
     cmd: git config --global --add safe.directory {{ moodle_webroot }}
   changed_when: true
 
@@ -225,14 +225,14 @@
     state: present
 
 - name: Postavi SELinux context za httpd na Moodle webroot
-  ansible.builtin.command:
+  command:
     cmd: semanage fcontext -a -t httpd_sys_rw_content_t "{{ moodle_webroot }}(/.*)?"
   register: semanage_result
   failed_when: semanage_result.rc != 0 and 'already defined' not in semanage_result.stderr
   changed_when: semanage_result.rc == 0
 
 - name: Primijeni SELinux context (restorecon)
-  ansible.builtin.command:
+  command:
     cmd: restorecon -Rv {{ moodle_webroot }}
   changed_when: true
 
@@ -243,7 +243,7 @@
     enabled: true
 
 - name: Pokreni Moodle CLI instalaciju (idempotentno - preskace ako su tablice vec tu)
-  ansible.builtin.command:
+  command:
     cmd: >
       php admin/cli/install_database.php
       --agree-license

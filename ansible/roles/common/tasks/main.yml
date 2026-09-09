@@ -14,6 +14,13 @@
   # kao ranije s Ansiblom 2.9 na kontroleru, ovaj put na managed node strani.
   # timedatectl je dio systemd-a, dostupan bez ikakve dodatne ovisnosti na
   # oba OS-a (RHEL8/Rocky 9).
-  ansible.builtin.command:
-    cmd: timedatectl set-timezone Europe/Zagreb
+  #
+  # Kratko ime modula ("command:", NE "ansible.builtin.command:") - live
+  # testirano 9.9.2026: FQCN prefiks na ovom Ansible 2.9.11 instalu ne
+  # prepoznaje "cmd:" kao valjan parametar ("Unsupported parameters ...
+  # Supported parameters include: _raw_params, ..."), samo "_raw_params"
+  # (free-form string). Kratko ime modula ide kroz cijeli/ispravan
+  # argument-spec (podrzava cmd/chdir/creates/...), FQCN na ovoj verziji
+  # ocito ide kroz nepotpuni redirect shim. Vidi CLAUDE.md.
+  command: timedatectl set-timezone Europe/Zagreb
   changed_when: true

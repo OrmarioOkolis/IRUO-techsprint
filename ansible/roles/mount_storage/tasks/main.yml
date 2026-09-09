@@ -111,7 +111,7 @@
   # cmd: dict oblik namjerno, ne free-form string - stariji Ansible (npr. 2.9,
   # potvrdjeno na RHA workstationu) ne podrzava FQCN modul + free-form string +
   # extra kljuc u istom tasku. Vidi CLAUDE.md (live otkriveno 9.9.2026).
-  ansible.builtin.command:
+  command:
     cmd: setsebool -P httpd_use_fusefs on
   changed_when: true
 
@@ -134,13 +134,13 @@
     update_cache: true
 
 - name: Prijavi se na Azure preko Managed Identity
-  ansible.builtin.command:
+  command:
     cmd: az login --identity
   register: az_login
   changed_when: false
 
 - name: Dohvati storage account key iz Key Vaulta
-  ansible.builtin.command:
+  command:
     cmd: >
       az keyvault secret show
       --vault-name {{ key_vault_name }}
