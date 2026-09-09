@@ -61,7 +61,10 @@ def get_dev_compute_outputs(dev_id):
 def build_inventory(i2_out, shared_out, i3_out, admin_user, ssh_key_path, os_auth_url):
     jump_ip = i2_out["jump_floating_ip"]
     lead_ip = shared_out["lead_fixed_ip"][0]
-    moodle_ips = i2_out["moodle_port_fixed_ips"]  # "dev01-01" -> [ip] (all_fixed_ips lista)
+    # "dev01-01" -> "10.11.1.54" - vec raspakiran plain string u
+    # openstack-i2-terraform/outputs.tf (`all_fixed_ips[0]`), NE lista - za
+    # razliku od lead_fixed_ip/jump_fixed_ip koji vracaju cijelu listu.
+    moodle_ips = i2_out["moodle_port_fixed_ips"]
 
     proxy = f"-o ProxyJump={admin_user}@{jump_ip} -o StrictHostKeyChecking=no"
 
@@ -98,7 +101,7 @@ def build_inventory(i2_out, shared_out, i3_out, admin_user, ssh_key_path, os_aut
         dev_username, dev_password = get_dev_credentials(i3_out, dev_id)
 
         hosts = {}
-        for key, ip_list in moodle_ips.items():
+        for key, ip in moodle_ips.items():
             if key.startswith(dev_id + "-"):
                 # Svaka Moodle instanca gleda SAMA SEBE kao wwwroot (bez pravog
                 # LB frontenda - Octavia je iskljucena na ovom sandboxu, vidi
@@ -107,9 +110,9 @@ def build_inventory(i2_out, shared_out, i3_out, admin_user, ssh_key_path, os_aut
                 # dvije neovisno dostupne instance, ne pravi HA par iza LB-a -
                 # posteno stanje, ne pretvaranje da LB postoji.
                 hosts[f"moodle-{key}"] = {
-                    "ansible_host": ip_list[0],
+                    "ansible_host": ip,
                     "ansible_ssh_common_args": proxy,
-                    "moodle_wwwroot": f"http://{ip_list[0]}",
+                    "moodle_wwwroot": f"http://{ip}",
                 }
         inventory["all"]["children"]["moodle"]["children"][dev_id] = {
             "hosts": hosts,
