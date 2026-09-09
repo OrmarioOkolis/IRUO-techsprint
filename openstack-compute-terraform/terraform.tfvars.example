@@ -1,0 +1,5 @@
+# Kopiraj u terraform.tfvars i popuni. terraform.tfvars je u .gitignore (ne commita se).
+# admin_ssh_public_key mora biti ISTI kao u openstack-i2-terraform/terraform.tfvars
+# (isti keypair, npr. ~/.ssh/example-keypair.pub na RHA workstationu).
+
+admin_ssh_public_key = "ssh-rsa AAAA... tvoj-komentar"
