@@ -158,7 +158,7 @@ def az_lookup_object_id(ime: str, prezime: str):
             "--query", "[].{id:id, displayName:displayName, upn:userPrincipalName}",
             "-o", "json",
         ],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
     )
     if result.returncode != 0:
         sys.exit(f"'az ad user list' nije uspio za '{ime} {prezime}':\n{result.stderr}")
@@ -261,7 +261,7 @@ def ensure_manila_share_type(env):
     dodijeliti Manila backend (host ostaje prazan, share zavrsi u error statusu)."""
     result = subprocess.run(
         ["manila", "type-list", "--columns", "Name"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, env=env,
     )
     if result.returncode != 0:
         sys.exit(f"'manila type-list' nije uspio:\n{result.stderr}")
