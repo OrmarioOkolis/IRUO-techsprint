@@ -68,18 +68,24 @@
 #    account). rclone.conf sadrzi lozinku - 0600, root-only (isti obrazac kao
 #    Azure /etc/smbcredentials-backups).
 # ---------------------------------------------------------------------------
-- name: Dodaj EPEL repozitorij (rclone nije u RHEL8 core/AppStream)
+- name: Instaliraj fuse (rclone dolazi preko sluzbene install skripte, ne dnf)
   ansible.builtin.dnf:
-    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    name: fuse
     state: present
-    disable_gpg_check: true
 
-- name: Instaliraj rclone i fuse
-  ansible.builtin.dnf:
-    name:
-      - rclone
-      - fuse
-    state: present
+- name: Provjeri je li rclone vec instaliran
+  ansible.builtin.stat:
+    path: /usr/bin/rclone
+  register: rclone_bin
+
+- name: Instaliraj rclone preko sluzbene install skripte
+  # Live testirano 9.9.2026: rclone paket NE postoji u EPEL8 ("No package
+  # rclone available") - umjesto dodavanja EPEL-a (nepouzdano, ovisi o
+  # tocnoj verziji repoa), koristi se sluzbena rclone.org install skripta
+  # (staticki binary, distro-neovisna, sluzbeno preporuceni nacin).
+  shell: curl -fsSL https://rclone.org/install.sh | bash
+  when: not rclone_bin.stat.exists
+  changed_when: true
 
 - name: Kreiraj moodledata direktorij (mount point za Swift)
   ansible.builtin.file:
