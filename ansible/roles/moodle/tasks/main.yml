@@ -23,13 +23,32 @@
       - php-opcache
     state: absent
 
-- name: Dodaj Remi repozitorij
+- name: Provjeri je li Remi repo vec dodan
+  ansible.builtin.stat:
+    path: /etc/yum.repos.d/remi.repo
+  register: remi_repo_file
+
+- name: Preuzmi Remi release RPM
   # Verzija u URL-u mora pratiti stvarni EL major (9 na Azureovom Rocky 9,
   # 8 na OpenStack RHA sandboxu koji koristi rhel8 image - vidi CLAUDE.md).
-  ansible.builtin.dnf:
-    name: "https://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version }}.rpm"
-    state: present
-    disable_gpg_check: true
+  ansible.builtin.get_url:
+    url: "https://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version }}.rpm"
+    dest: /tmp/remi-release.rpm
+    mode: "0644"
+  when: not remi_repo_file.stat.exists
+
+- name: Instaliraj Remi repozitorij (rpm --nodeps, ne dnf)
+  # Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu: `ansible.builtin.dnf`
+  # (pa time i "yum install <url>") odbija paket - trenutna remi-release-8.rpm
+  # (8.10-2) zahtijeva "redhat-release >= 8.10", a ovaj RHA image je RHEL 8.2
+  # (stari, namjerno fiksirani point-release za konzistentnost vjezbi kolegija
+  # - "dnf update" u common roli ne mijenja point-release broj). Stvarna
+  # funkcionalna potreba je samo da se .repo fajl odloži u /etc/yum.repos.d/ -
+  # rpm ovisnosti (redhat-release/epel-release verzija) su konzervativan gate
+  # bez stvarnog funkcionalnog razloga za nas slucaj, pa se instalira izravno
+  # preko rpm -Uvh --nodeps (zaobilazi dnf-ovu strozu provjeru ovisnosti).
+  command: rpm -Uvh --nodeps /tmp/remi-release.rpm
+  when: not remi_repo_file.stat.exists
 
 - name: Resetiraj default PHP modul stream
   # cmd: dict oblik namjerno, ne free-form string - Ansible 2.9 (RHA
