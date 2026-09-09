@@ -6,5 +6,14 @@
     update_cache: true
 
 - name: Postavi timezone na Europe/Zagreb
-  community.general.timezone:
-    name: Europe/Zagreb
+  # ansible.builtin.command umjesto community.general.timezone - live
+  # testirano 9.9.2026: community.general 13.4.0 (najnoviji, ansible-galaxy
+  # instalira default najnoviju verziju) modul zahtijeva noviji Python NA
+  # CILJNOM hostu ("SyntaxError: future feature annotations is not defined"),
+  # a RHEL8 image (OpenStack) ima sistemski python3 3.6 - ista klasa problema
+  # kao ranije s Ansiblom 2.9 na kontroleru, ovaj put na managed node strani.
+  # timedatectl je dio systemd-a, dostupan bez ikakve dodatne ovisnosti na
+  # oba OS-a (RHEL8/Rocky 9).
+  ansible.builtin.command:
+    cmd: timedatectl set-timezone Europe/Zagreb
+  changed_when: true
