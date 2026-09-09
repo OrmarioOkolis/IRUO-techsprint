@@ -24,10 +24,23 @@
 #    attached volume kao /dev/vdb (OS disk je /dev/vda) - stabilno, nema
 #    Azureov "lun N" simlink sloj.
 # ---------------------------------------------------------------------------
+# community.general.filesystem/ansible.posix.mount NAMJERNO NISU koristeni
+# ovdje - live testirano 9.9.2026: community.general.filesystem puknuo
+# identicnim uzrokom kao ranije community.general.timezone ("SyntaxError:
+# future feature annotations is not defined" - modul-kod izvrsen NA CILJNOM
+# hostu, RHEL8 python3 3.6, kolekcija zahtijeva 3.7+). ansible.posix.mount
+# nije ni stigao testirati se (host je vec pao na prethodnom tasku), ali
+# preventivno izbjegnut isti rizik - zamijenjeno cistim ansible.builtin
+# (dio ansible-core, ne posebne kolekcije, dokazano radi na ovim hostovima).
+- name: Provjeri je li data disk vec formatiran (ext4)
+  command: blkid -o value -s TYPE /dev/vdb
+  register: vdb_blkid
+  failed_when: false
+  changed_when: false
+
 - name: Formatiraj data disk kao ext4 (ako vec nije formatiran)
-  community.general.filesystem:
-    fstype: ext4
-    dev: /dev/vdb
+  command: mkfs.ext4 /dev/vdb
+  when: vdb_blkid.stdout != "ext4"
 
 - name: Kreiraj mount point za MariaDB data dir
   ansible.builtin.file:
@@ -37,13 +50,15 @@
     group: root
     mode: "0755"
 
-- name: Mountaj data disk na MariaDB data dir (fstab + odmah)
-  ansible.posix.mount:
-    path: "{{ mariadb_datadir }}"
-    src: /dev/vdb
-    fstype: ext4
-    opts: defaults,noatime
-    state: mounted
+- name: Dodaj data disk u /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^/dev/vdb\\s"
+    line: "/dev/vdb  {{ mariadb_datadir }}  ext4  defaults,noatime  0 2"
+
+- name: Mountaj sve iz fstab (idempotentno - preskace vec mountano)
+  command: mount -a
+  changed_when: false
 
 # ---------------------------------------------------------------------------
 # 2) Swift (objektna pohrana) preko rclone. Kredencijali su developerov
