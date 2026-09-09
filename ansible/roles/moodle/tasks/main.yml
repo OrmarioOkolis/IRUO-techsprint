@@ -311,11 +311,19 @@
   changed_when: true
 
 - name: Preuzmi Moodle izvorni kod (git, tocan stabilni tag)
+  # force: true - live testirano 9.9.2026: "public/config.php" je TRACKED
+  # placeholder fajl u samom Moodle repou, a mi ga svaki put prepisujemo
+  # (vidi "Generiraj public/config.php stub" nize) - bez force, git modul
+  # na SVAKOM sljedecem run-u vidi "dirty" radno stablo i puca s "Local
+  # modifications exist in repository (force=no)" prije nego uopce stigne
+  # provjeriti je li verzija promijenjena. Ta datoteka je ansible-upravljana
+  # namjerno, sigurno ju je odbaciti/prepisati pri svakom checkoutu.
   ansible.builtin.git:
     repo: https://github.com/moodle/moodle.git
     dest: "{{ moodle_webroot }}"
     version: "{{ moodle_version }}"
     depth: 1
+    force: true
   become_user: root
 
 - name: Postavi vlasnistvo Moodle koda na apache
