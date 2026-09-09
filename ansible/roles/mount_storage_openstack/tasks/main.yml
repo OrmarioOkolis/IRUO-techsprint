@@ -68,9 +68,14 @@
 #    account). rclone.conf sadrzi lozinku - 0600, root-only (isti obrazac kao
 #    Azure /etc/smbcredentials-backups).
 # ---------------------------------------------------------------------------
-- name: Instaliraj fuse (rclone dolazi preko sluzbene install skripte, ne dnf)
+- name: Instaliraj fuse i unzip (rclone dolazi preko sluzbene install skripte, ne dnf)
+  # unzip - live testirano 9.9.2026: rclone.org/install.sh treba unzip/7z/
+  # busybox za raspakiravanje preuzetog zip arhiva, minimalni RHEL8 image
+  # nema nijedno od toga po defaultu.
   ansible.builtin.dnf:
-    name: fuse
+    name:
+      - fuse
+      - unzip
     state: present
 
 - name: Provjeri je li rclone vec instaliran
