@@ -309,6 +309,35 @@
     mode: "0640"
   no_log: true
 
+# ---------------------------------------------------------------------------
+# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu (prvi put da je puni
+# playbook stigao do stvarnog HTTP zahtjeva - do sada je uvijek pucao ranije
+# u lancu): HTTP 500, "require(../config.php): Failed to open stream" iz
+# public/login/index.php. Moodle 5.x public/ reorganizacija (vidi i
+# moodle.conf.j2/Apache Alias napomenu) znaci da su web-servirani ulazni
+# skriptovi (npr. public/login/index.php) PREMJESTENI u public/, ali stvarni
+# config.php i dalje zivi na checkout ROOT-u (isto mjesto kao prije, cita ga
+# npr. admin/cli/install_database.php preko VLASTITOG relativnog puta koji
+# ide dvije razine gore - zato je CLI instalacija ranije prosla bez greske).
+# Skripte UNUTAR public/ (npr. public/login/index.php) rade `require('../
+# config.php')` - JEDNU razinu gore od SVOJE lokacije (public/login/), sto
+# pokazuje na public/config.php, NE na pravi config.php na root-u. Sluzbeni
+# Moodle 5.x public/ obrazac zato zahtijeva MALI "stub" fajl unutar public/
+# koji samo prosljedjuje na stvarni config.php - bez njega SVAKA stranica
+# unutar public/ (dakle citav weB pristup) puca s HTTP 500, dok CLI
+# alati (koji ne prolaze kroz public/) rade normalno - zato je ovaj bug
+# ostao neotkriven kroz cijelu Terraform/mount/paket fazu.
+# ---------------------------------------------------------------------------
+- name: Generiraj public/config.php stub (Moodle 5.x public/ obrazac - prosljedjuje na pravi config.php)
+  ansible.builtin.copy:
+    dest: "{{ moodle_webroot }}/public/config.php"
+    content: |
+      <?php
+      require(__DIR__ . '/../config.php');
+    owner: apache
+    group: apache
+    mode: "0640"
+
 - name: Generiraj Apache vhost za Moodle
   ansible.builtin.template:
     src: moodle.conf.j2
