@@ -22,3 +22,14 @@ output "manila_share_export_locations" {
   description = "NFS export putanje - koriste se za mount na Moodle instancama (Ansible)."
   value       = openstack_sharedfilesystem_share_v2.backups.export_locations
 }
+
+output "manila_access_key" {
+  description = "Cephx kljuc za mount preko ceph-fuse (Ansible cita ovo, ne ide u git kao plaintext)."
+  value       = openstack_sharedfilesystem_share_access_v2.backups.access_key
+  sensitive   = true
+}
+
+output "manila_access_to" {
+  description = "Cephx client ID (access_to) - potreban uz kljuc za ceph-fuse mount naredbu."
+  value       = openstack_sharedfilesystem_share_access_v2.backups.access_to
+}

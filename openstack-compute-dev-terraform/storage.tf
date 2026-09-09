@@ -66,3 +66,19 @@ resource "openstack_sharedfilesystem_share_v2" "backups" {
   size        = var.manila_share_size_gb
   share_type  = var.manila_share_type != "" ? var.manila_share_type : null
 }
+
+# ---------------------------------------------------------------------------
+# Access rule - bez ovoga NIJEDAN klijent ne moze mountati share (Manila
+# default-deny, za razliku od Neutron security grupa gdje je pristup network-
+# scoped). CephFS native driver koristi "cephx" access_type - Ceph-ova vlastita
+# autentikacija, ne IP-based kao NFS. access_key je computed (Manila ga sam
+# generira) - Ansible ga cita preko `terraform output` pri mountanju, ne ide u
+# git (isto nacelo kao Azure Files kljuc iz Key Vaulta - kredencijal se ne
+# hardkodira, dohvaca se programski).
+# ---------------------------------------------------------------------------
+resource "openstack_sharedfilesystem_share_access_v2" "backups" {
+  share_id     = openstack_sharedfilesystem_share_v2.backups.id
+  access_type  = "cephx"
+  access_to    = "${local.name_prefix}-${var.dev_id}"
+  access_level = "rw"
+}

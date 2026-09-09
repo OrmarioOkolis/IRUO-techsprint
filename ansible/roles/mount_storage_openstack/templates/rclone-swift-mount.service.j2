@@ -1,0 +1,19 @@
+[Unit]
+Description=rclone mount za Moodle dataroot (Swift objektna pohrana, developerov Keystone identitet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/bin/mkdir -p {{ moodle_dataroot }}
+ExecStart=/usr/bin/rclone mount moodledata:{{ swift_container_name }} {{ moodle_dataroot }} \
+  --config /etc/rclone/rclone.conf \
+  --allow-other \
+  --daemon \
+  --vfs-cache-mode writes
+ExecStop=/bin/fusermount -u {{ moodle_dataroot }}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

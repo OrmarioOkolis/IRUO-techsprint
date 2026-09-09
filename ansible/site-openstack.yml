@@ -1,0 +1,33 @@
+---
+# Glavni playbook za OpenStack. Pokreni NA RHA workstationu (isti razlog kao
+# terraform - vidi CLAUDE.md), nakon uspjesnog `scripts/provision.py --cloud
+# openstack` (ili rucnih apply-a I3->I2->compute-shared->compute-dev):
+#
+#   python3 inventory/generate_inventory_openstack.py
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook site-openstack.yml -i inventory/hosts-openstack.yml
+#
+# Redoslijed je bitan: mount_storage_openstack MORA proći prije moodle role,
+# isti razlog kao Azure (site.yml) - Moodle instalacija pise u moodledata
+# (Swift mount) i koristi MariaDB data dir (Cinder data disk).
+#
+# NIJE JOS LIVE TESTIRANO u cijelosti - vidi napomenu na vrhu
+# roles/mount_storage_openstack/tasks/main.yml.
+
+- name: Priprema svih VM-ova (jump, lead, moodle)
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Mount pohrane na Moodle VM-ovima (Cinder disk, Swift, Manila CephFS)
+  hosts: moodle
+  become: true
+  roles:
+    - mount_storage_openstack
+
+- name: Instalacija Moodlea
+  hosts: moodle
+  become: true
+  roles:
+    - moodle

@@ -1,0 +1,15 @@
+[Unit]
+Description=ceph-fuse mount za backupe (Manila CephFS share, cephx access)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStartPre=/usr/bin/mkdir -p {{ backups_mountpoint }}
+ExecStart=/usr/bin/ceph-fuse -n client.{{ manila_access_to }} --keyring /etc/ceph/manila.keyring -m {{ manila_mon_addr }} --client_mountpoint={{ manila_cephfs_path }} {{ backups_mountpoint }}
+ExecStop=/bin/fusermount -u {{ backups_mountpoint }}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

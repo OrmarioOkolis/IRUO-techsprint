@@ -11,6 +11,11 @@ output "jump_fixed_ip" {
   value       = data.openstack_networking_port_v2.jump.all_fixed_ips
 }
 
+output "lead_fixed_ip" {
+  description = "Interni IP DevOps Lead VM-a na hub mrezi - koristi Ansible inventory generator (lead nema floating IP, dostupan samo preko jump hosta)."
+  value       = data.openstack_networking_port_v2.lead.all_fixed_ips
+}
+
 output "flavor_id" {
   value = openstack_compute_flavor_v2.app.id
 }

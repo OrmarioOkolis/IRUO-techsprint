@@ -9,6 +9,7 @@ crash.*.log
 
 # Ansible
 ansible/inventory/hosts.yml
+ansible/inventory/hosts-openstack.yml
 *.retry
 
 # CSV provisioning - stvarni popis (PII), primjer ostaje trackan

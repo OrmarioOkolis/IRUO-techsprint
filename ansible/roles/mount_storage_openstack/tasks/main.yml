@@ -1,0 +1,182 @@
+---
+# Mount pohrane na Moodle VM (OpenStack): data disk (MariaDB), Swift preko
+# rclone (objektna pohrana, moodledata) s developerovim VLASTITIM Keystone
+# identitetom (least-privilege - vidi generate_inventory_openstack.py), Manila
+# CephFS preko ceph-fuse (datotecna pohrana, backupi) s cephx access kljucem
+# koji je Terraform vec generirao (openstack-compute-dev-terraform/storage.tf).
+#
+# NIJE JOS LIVE TESTIRANO u cijelosti (za razliku od Terraform strane koja je
+# sva live-testirana) - ovo je prvi pokusaj, ocekuj da ce trebati popravaka
+# nakon prvog stvarnog pokretanja (isti obrazac kao Manila share_proto/
+# share_type/share_network otkrica - vidi CLAUDE.md).
+
+- name: Instaliraj osnovne pakete (fuse, parted)
+  ansible.builtin.dnf:
+    name:
+      - fuse3
+      - fuse3-libs
+      - parted
+    state: present
+
+# ---------------------------------------------------------------------------
+# 1) Data disk (Cinder volume, drugi disk) -> MariaDB data dir. Potvrdjeno
+#    live 9.9.2026 (`openstack volume list`): OpenStack/KVM prikazuje drugi
+#    attached volume kao /dev/vdb (OS disk je /dev/vda) - stabilno, nema
+#    Azureov "lun N" simlink sloj.
+# ---------------------------------------------------------------------------
+- name: Formatiraj data disk kao ext4 (ako vec nije formatiran)
+  community.general.filesystem:
+    fstype: ext4
+    dev: /dev/vdb
+
+- name: Kreiraj mount point za MariaDB data dir
+  ansible.builtin.file:
+    path: "{{ mariadb_datadir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Mountaj data disk na MariaDB data dir (fstab + odmah)
+  ansible.posix.mount:
+    path: "{{ mariadb_datadir }}"
+    src: /dev/vdb
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# ---------------------------------------------------------------------------
+# 2) Swift (objektna pohrana) preko rclone. Kredencijali su developerov
+#    VLASTITI Keystone username/password (scoped SAMO na njegov projekt/
+#    kontejner preko project-scopinga - vidi openstack-i3-terraform - isto
+#    nacelo least-privilegea kao Azure Managed Identity scoped na storage
+#    account). rclone.conf sadrzi lozinku - 0600, root-only (isti obrazac kao
+#    Azure /etc/smbcredentials-backups).
+# ---------------------------------------------------------------------------
+- name: Dodaj EPEL repozitorij (rclone nije u RHEL8 core/AppStream)
+  ansible.builtin.dnf:
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    state: present
+    disable_gpg_check: true
+
+- name: Instaliraj rclone i fuse
+  ansible.builtin.dnf:
+    name:
+      - rclone
+      - fuse
+    state: present
+
+- name: Kreiraj moodledata direktorij (mount point za Swift)
+  ansible.builtin.file:
+    path: "{{ moodle_dataroot }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0770"
+
+- name: Kreiraj rclone config direktorij
+  ansible.builtin.file:
+    path: /etc/rclone
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generiraj rclone config (Swift, developerov vlastiti identitet)
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: /etc/rclone/rclone.conf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: restart rclone-swift
+
+- name: Omoguci user_allow_other u /etc/fuse.conf (preduvjet za allow-other)
+  ansible.builtin.lineinfile:
+    path: /etc/fuse.conf
+    regexp: "^#?\\s*user_allow_other"
+    line: "user_allow_other"
+  notify: restart rclone-swift
+
+- name: Instaliraj systemd unit za rclone Swift mount
+  ansible.builtin.template:
+    src: rclone-swift-mount.service.j2
+    dest: /etc/systemd/system/rclone-swift-moodledata.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart rclone-swift
+
+- name: Pokreni i omoguci rclone Swift mount servis
+  ansible.builtin.systemd:
+    name: rclone-swift-moodledata.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Omoguci httpd_use_fusefs SELinux boolean (Apache mora pisati na FUSE mount)
+  ansible.builtin.command: setsebool -P httpd_use_fusefs on
+  changed_when: true
+
+# ---------------------------------------------------------------------------
+# 3) Manila share (CephFS, datotecna pohrana - backupi) preko ceph-fuse.
+#    Cephx kljuc je vec generiran u Terraformu (share_access_v2 resurs) -
+#    Ansible ga samo cita i upisuje u keyring, ne generira ga sam.
+# ---------------------------------------------------------------------------
+- name: Instaliraj ceph-fuse
+  ansible.builtin.dnf:
+    name: ceph-fuse
+    state: present
+
+- name: Kreiraj /etc/ceph direktorij
+  ansible.builtin.file:
+    path: /etc/ceph
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Generiraj cephx keyring za Manila access
+  ansible.builtin.template:
+    src: ceph-manila.keyring.j2
+    dest: /etc/ceph/manila.keyring
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: restart ceph-fuse-manila
+
+- name: Kreiraj backups mount point
+  ansible.builtin.file:
+    path: "{{ backups_mountpoint }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Rastavi Manila export putanju (mon_addr + cephfs podputanja)
+  # Format: "<mon_ip>:<mon_port>:/volumes/_nogroup/<share_instance_id>"
+  ansible.builtin.set_fact:
+    manila_mon_addr: "{{ manila_export_path.split(':')[0] }}:{{ manila_export_path.split(':')[1] }}"
+    manila_cephfs_path: "{{ manila_export_path.split(':', 2)[2] }}"
+
+- name: Instaliraj systemd unit za ceph-fuse Manila mount
+  ansible.builtin.template:
+    src: ceph-fuse-manila.service.j2
+    dest: /etc/systemd/system/ceph-fuse-manila.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart ceph-fuse-manila
+
+- name: Pokreni i omoguci ceph-fuse Manila mount servis
+  ansible.builtin.systemd:
+    name: ceph-fuse-manila.service
+    enabled: true
+    state: started
+    daemon_reload: true
