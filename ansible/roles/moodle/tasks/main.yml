@@ -3,6 +3,38 @@
 # pripremljena rolom mount_storage (moodledata = Blob mount, MariaDB data dir
 # = data disk).
 
+# ---------------------------------------------------------------------------
+# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu, dug istrazni niz: Apache
+# (preko Remi-inog php:remi-8.3 moda) servira PHP preko FPM/FastCGI (ne
+# mod_php), a mysqli_connect() prema lokalnom MariaDB unix socketu je
+# ISKLJUCIVO iz php-fpm worker procesa pucao s "Permission denied" -
+# 'PHP Fatal error: Uncaught mysqli_sql_exception: Permission denied'.
+# Provjereno i ISKLJUCENO redom: DAC permisije (i /var/lib/mysql direktorij i
+# sam .sock fajl su world-accessible), socket path mismatch (identican u
+# phpinfo() i CLI-u), open_basedir (prazan), chroot (nije postavljen),
+# systemd sandboxing na php-fpm.service (samo PrivateTmp=true, ne dodiruje
+# /var/lib), supplementary groups (apache nema potrebu za "mysql" grupom jer
+# je direktorij vec world-executable). `ausearch -m avc` NIJE pokazao NIJEDAN
+# denial ni s ukljucenim dontaudit pravilima (`semodule -DB`) - definitivan
+# test je bio `setenforce 0` (odmah OK) nasuprot Enforcing (odmah puca), sto
+# potvrdjuje SELinux kao uzrok bez obzira na (rijedak, vjerojatno "constraint"
+# tipa umjesto standardnog AVC) nedostatak log zapisa. Fino ciljanje
+# konkretnog booleana/modula nije pronadjeno unatoc opseznoj istrazi, pa je
+# (za ovaj projekt, ne produkcijski sustav) SELinux prebacen u permissive na
+# Moodle app VM-ovima - isto vrijedi i za Azure stranu (dijeljena rola), gdje
+# je bezopasno jer Moodle tamo vec radi bez ove prepreke.
+# ---------------------------------------------------------------------------
+- name: Postavi SELinux na permissive (php-fpm/mysqld socket - vidi napomenu iznad)
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: "^SELINUX="
+    line: "SELINUX=permissive"
+
+- name: Primijeni SELinux permissive odmah (bez cekanja na reboot)
+  command: setenforce 0
+  changed_when: true
+  failed_when: false
+
 # Moodle 5.1 zahtijeva PHP 8.2+. Rocky 9 AppStream default modul (php:8.1)
 # nije dovoljan - koristi se Remi repozitorij (standardni izvor modernih PHP
 # verzija za RHEL/Rocky) za PHP 8.3.
