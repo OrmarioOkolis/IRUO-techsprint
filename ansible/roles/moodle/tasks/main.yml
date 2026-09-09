@@ -63,6 +63,25 @@
     cmd: dnf module enable -y php:remi-8.3
   changed_when: true
 
+# ---------------------------------------------------------------------------
+# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu (nakon Remi fixa):
+# Remi-in php-gd paket (8.3) ovisi o novijim slikovnim bibliotekama
+# (libavif.so.14, libraqm.so.0, libimagequant.so.0) kojih nema ni u jednom
+# omogucenom repou (isti "star RHEL8.2 image" razlog kao Remi problem ranije)
+# - "nothing provides ..." unistava CIJELU dnf transakciju (dnf install je
+# atoman - jedan nerjesivi paket blokira sve ostale u istom pozivu). EPEL
+# obicno nosi te biblioteke; epel-release SAM PO SEBI (za razliku od
+# remi-release) nema strogi redhat-release>=8.10 zahtjev pa prolazi kroz
+# obican dnf. skip_broken je dodatna sigurnosna mreza (da php-gd, ako ipak
+# ostane nerjesiv, ne blokira instalaciju SVEGA ostalog - Moodle radi i bez
+# GD-a, samo s degradiranom slikovnom obradom).
+# ---------------------------------------------------------------------------
+- name: Omoguci EPEL (nedostajuce slikovne biblioteke za php-gd)
+  ansible.builtin.dnf:
+    name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+    state: present
+    disable_gpg_check: true
+
 - name: Instaliraj Apache, PHP 8.3 i potrebne ekstenzije
   ansible.builtin.dnf:
     name:
@@ -82,6 +101,7 @@
       - unzip
       - git
     state: present
+    skip_broken: true
 
 - name: Postavi max_input_vars >= 5000 (Moodle zahtjev)
   ansible.builtin.lineinfile:
