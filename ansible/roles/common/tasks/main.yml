@@ -21,11 +21,23 @@
   raw: mkdir -p /tmp/.ansible-remote-tmp && chmod 1777 /tmp/.ansible-remote-tmp
   changed_when: false
 
+# exclude: ansible* - live testirano 9.9.2026 (dvaput, u istoj sesiji): kad
+# je EPEL omogucen (moodle rola ga treba za php-gd slikovne biblioteke -
+# vidi ansible/roles/moodle/tasks/main.yml), EPEL-ov "ansible" paket
+# (9.2.0) zahtijeva python3.12 kojeg nema na ovom RHEL8 image-u, pa
+# "dnf update -y *" puca na depsolve GRESCI za cijelu tranzakciju vec u
+# ovoj (prvoj) roli, prije nego se uopce stigne do moodle role. Prvi put je
+# to rijeseno rucno (`dnf remove -y epel-release` na 4 hosta), ali EPEL se
+# ponovno dodaje svakim buducim run-om (moodle rola ga treba trajno) pa
+# rucni fix nije odrziv - iskljucen je "ansible*" iz update-a umjesto toga
+# (mi ne trebamo ansible paket AZURIRAN na target hostovima, samo na
+# kontroleru).
 - name: Azuriraj sve pakete
   ansible.builtin.dnf:
     name: "*"
     state: latest
     update_cache: true
+    exclude: ansible*
 
 - name: Postavi timezone na Europe/Zagreb
   # ansible.builtin.command umjesto community.general.timezone - live
