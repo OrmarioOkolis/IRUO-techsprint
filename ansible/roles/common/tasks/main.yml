@@ -15,7 +15,10 @@
 # staging-a), pa moze popraviti permisije ODMAH, bez cega-i-jajeta problema.
 # ---------------------------------------------------------------------------
 - name: Osiguraj da je dijeljeni remote_tmp world-writable (sprijeci permission denied)
-  ansible.builtin.raw: mkdir -p /tmp/.ansible-remote-tmp && chmod 1777 /tmp/.ansible-remote-tmp
+  # Kratko ime ("raw:", ne "ansible.builtin.raw:") - isti FQCN+free-form+
+  # extra-kljuc bug kao ranije (command/shell), pogadja i raw modul na ovom
+  # Ansible 2.9.11 instalu.
+  raw: mkdir -p /tmp/.ansible-remote-tmp && chmod 1777 /tmp/.ansible-remote-tmp
   changed_when: false
 
 - name: Azuriraj sve pakete
