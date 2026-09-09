@@ -118,7 +118,12 @@
     daemon_reload: true
 
 - name: Omoguci httpd_use_fusefs SELinux boolean (Apache mora pisati na FUSE mount)
-  ansible.builtin.command: setsebool -P httpd_use_fusefs on
+  # cmd: dict oblik namjerno, ne free-form string - Ansible 2.9 (RHA workstation)
+  # ne podrzava FQCN modul + free-form string + extra kljuc (changed_when) u
+  # istom tasku, samo kratko ime (npr. "command:") to podrzava. Vidi CLAUDE.md
+  # (live otkriveno 9.9.2026, ista greska u moodle/mount_storage roli).
+  ansible.builtin.command:
+    cmd: setsebool -P httpd_use_fusefs on
   changed_when: true
 
 # ---------------------------------------------------------------------------
