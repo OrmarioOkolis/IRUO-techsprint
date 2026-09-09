@@ -1,4 +1,23 @@
 ---
+# ---------------------------------------------------------------------------
+# Dijeljeni remote_tmp direktorij (vidi group_vars/all.yml:
+# ansible_remote_tmp: /tmp/.ansible-remote-tmp - potreban jer apache/drugi
+# sistemski become_user-ovi nemaju writable home). Live testirano 9.9.2026:
+# prvi task koji ga kreira postavlja mode 0700 (Ansiblov interni "umask 77 &&
+# mkdir -p" bootstrap), pa SVAKA SLJEDECA konekcija koja ne dijeli isti
+# efektivni vlasnik/session (npr. nakon cistenja SSH ControlPath socketa,
+# ili druga faza become-a) puca s "Permission denied" na mkdir unutar tog
+# direktorija - "unreachable", ne "failed", i poruka je cesto zakrivena ako
+# je task s no_log:true (kao rclone config predlozak) jer Ansible tretira
+# CIJELI rezultat kao osjetljiv kad no_log stoji, ukljucujuci i connection-
+# level greske. ansible.builtin.raw namjerno - to je JEDINI modul koji ne
+# ovisi o remote_tmp mehanizmu (izvrsava se izravno preko SSH-a, bez
+# staging-a), pa moze popraviti permisije ODMAH, bez cega-i-jajeta problema.
+# ---------------------------------------------------------------------------
+- name: Osiguraj da je dijeljeni remote_tmp world-writable (sprijeci permission denied)
+  ansible.builtin.raw: mkdir -p /tmp/.ansible-remote-tmp && chmod 1777 /tmp/.ansible-remote-tmp
+  changed_when: false
+
 - name: Azuriraj sve pakete
   ansible.builtin.dnf:
     name: "*"
