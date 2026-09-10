@@ -22,12 +22,19 @@ resource "azurerm_storage_account" "dev" {
   min_tls_version            = "TLS1_2"
   https_traffic_only_enabled = true
 
-  network_rules {
-    default_action             = "Deny"
-    virtual_network_subnet_ids = [azurerm_subnet.moodle[each.key].id]
-    ip_rules                   = [chomp(data.http.deployer_ip.response_body)]
-    bypass                     = ["AzureServices"]
-  }
+  # Mrezni firewall se NAMJERNO NE postavlja ovdje (inline network_rules) nego
+  # kroz zaseban azurerm_storage_account_network_rules resource koji ovisi
+  # (depends_on) o container/share resursima - dakle firewall se zakljucava TEK
+  # NAKON sto su container i share vec kreirani.
+  #
+  # Razlog (live otkriveno 10.9.2026, clean destroy+recreate): s inline
+  # "default_action = Deny", Terraform kreira account pa ODMAH (isti apply,
+  # dependency chain) pokusa kreirati container preko blob data-plane endpointa.
+  # Firewall pravilo jos nije propagirano na sam storage servis u tih par
+  # sekundi, pa data-plane poziv pada s "403 AuthorizationFailure: This request
+  # is not authorized to perform this operation." Ranije nije pucalo jer su
+  # apply-evi bili idempotentni (container je vec postojao, data-plane create
+  # se nije ni pokusao).
 
   tags = merge(local.common_tags, { "dev-id" = each.key, owner = each.value.name })
 }
@@ -46,6 +53,31 @@ resource "azurerm_storage_share" "backups" {
   name                 = "backups"
   storage_account_name = azurerm_storage_account.dev[each.key].name
   quota                = 100
+}
+
+# ---------------------------------------------------------------------------
+# Mrezni firewall storage accounta - primijenjen TEK NAKON container/share
+# (depends_on) da se izbjegne 403 na data-plane kreiranju (vidi napomenu uz
+# azurerm_storage_account.dev). default_action = "Deny": pristup dozvoljen
+# samo s vlastitog Moodle spoke subneta (least-privilege, izolacija po
+# developeru - I2/I4 rubrika) + javne IP adrese stroja koji pokrece Terraform
+# (operativna nuznost - inace bi svaki sljedeci "terraform plan/apply" pao vec
+# na refreshu jer i citanje containera ide kroz data plane).
+# ---------------------------------------------------------------------------
+resource "azurerm_storage_account_network_rules" "dev" {
+  for_each = local.developers_indexed
+
+  storage_account_id = azurerm_storage_account.dev[each.key].id
+
+  default_action             = "Deny"
+  virtual_network_subnet_ids = [azurerm_subnet.moodle[each.key].id]
+  ip_rules                   = [chomp(data.http.deployer_ip.response_body)]
+  bypass                     = ["AzureServices"]
+
+  depends_on = [
+    azurerm_storage_container.moodledata,
+    azurerm_storage_share.backups,
+  ]
 }
 
 # ---------------------------------------------------------------------------
