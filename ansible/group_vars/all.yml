@@ -15,9 +15,9 @@ azure_admin_username: azureuser
 moodle_version: MOODLE_501_STABLE
 moodle_db_name: moodle
 moodle_db_user: moodleuser
-# Placeholder - PRIJE stvarnog deploymenta prepiši preko:
+# PRIJE stvarnog deploymenta prepiši preko:
 #   ansible-playbook site.yml -e moodle_db_password=<jaka-lozinka>
 # ili group_vars/all.yml lokalno (ne commitaj stvarnu lozinku u git).
-moodle_db_password: "ChangeMe-Techsprint-2026!"
-moodle_admin_password: "ChangeMe-Admin-2026!"
+moodle_db_password: "Mario.nikolis2611"
+moodle_admin_password: "Mario.nikolis2611"
 moodle_site_name: "TechSprint Moodle – testna okolina"
