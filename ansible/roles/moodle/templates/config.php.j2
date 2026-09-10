@@ -6,7 +6,10 @@ $CFG = new stdClass();
 
 $CFG->dbtype    = 'mariadb';
 $CFG->dblibrary = 'native';
-$CFG->dbhost    = 'localhost';
+// Azure HA par: moodle_db_host = privatni IP primarne instance (dijeljena
+// baza, vidi generate_inventory.py / moodle rolu). OpenStack / samostalna
+// instanca: nije postavljeno -> 'localhost' (svaka instanca svoja baza).
+$CFG->dbhost    = '{{ moodle_db_host | default("localhost") }}';
 $CFG->dbname    = '{{ moodle_db_name }}';
 $CFG->dbuser    = '{{ moodle_db_user }}';
 $CFG->dbpass    = '{{ moodle_db_password }}';
@@ -23,6 +26,14 @@ $CFG->dboptions = array(
 $CFG->wwwroot   = '{{ moodle_wwwroot }}';
 $CFG->dataroot  = '{{ moodle_dataroot }}';
 $CFG->admin     = 'admin';
+
+// Sesije u BAZI, ne u datotekama. moodledata je na blobfuse2 (Azure) / rclone
+// Swift (OpenStack) - oba su FUSE i ne podrzavaju flock() koji PHP file
+// session handler treba, pa se sesija gubi izmedju zahtjeva ("Invalid login"
+// nakon cookie-check redirecta). DB sesije su uz to i ispravan HA obrazac:
+// obje instance iza LB-a dijele isto stanje sesije (dijeljena baza).
+$CFG->session_handler_class = '\core\session\database';
+$CFG->session_database_acquire_lock_timeout = 120;
 
 $CFG->directorypermissions = 0770;
 

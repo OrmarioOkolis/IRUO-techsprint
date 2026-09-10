@@ -60,27 +60,36 @@
     path: /etc/yum.repos.d/remi.repo
   register: remi_repo_file
 
-- name: Preuzmi Remi release RPM
-  # Verzija u URL-u mora pratiti stvarni EL major (9 na Azureovom Rocky 9,
-  # 8 na OpenStack RHA sandboxu koji koristi rhel8 image - vidi CLAUDE.md).
+# EL9 (Azure Rocky 9): remi-release-9.rpm se uredno instalira preko dnf i
+# povuce epel-release kao ovisnost. EL8 (OpenStack RHA rhel8 image, namjerno
+# fiksiran na stari 8.2 point-release): remi-release-8.rpm zahtijeva
+# "redhat-release >= 8.10" pa dnf odbija paket - instalira se izravno preko
+# rpm -Uvh --nodeps (stvarna potreba je samo da se .repo fajl odlozi u
+# /etc/yum.repos.d/; rpm ovisnost je konzervativan gate bez funkcionalnog
+# razloga za nas slucaj). Live testirano 9.9.2026 na OpenStack sandboxu.
+- name: Dodaj Remi repozitorij (EL9 - obican dnf)
+  ansible.builtin.dnf:
+    name: "https://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version }}.rpm"
+    state: present
+    disable_gpg_check: true
+  when:
+    - not remi_repo_file.stat.exists
+    - ansible_distribution_major_version is version('9', '>=')
+
+- name: Preuzmi Remi release RPM (EL8)
   ansible.builtin.get_url:
     url: "https://rpms.remirepo.net/enterprise/remi-release-{{ ansible_distribution_major_version }}.rpm"
     dest: /tmp/remi-release.rpm
     mode: "0644"
-  when: not remi_repo_file.stat.exists
+  when:
+    - not remi_repo_file.stat.exists
+    - ansible_distribution_major_version is version('9', '<')
 
-- name: Instaliraj Remi repozitorij (rpm --nodeps, ne dnf)
-  # Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu: `ansible.builtin.dnf`
-  # (pa time i "yum install <url>") odbija paket - trenutna remi-release-8.rpm
-  # (8.10-2) zahtijeva "redhat-release >= 8.10", a ovaj RHA image je RHEL 8.2
-  # (stari, namjerno fiksirani point-release za konzistentnost vjezbi kolegija
-  # - "dnf update" u common roli ne mijenja point-release broj). Stvarna
-  # funkcionalna potreba je samo da se .repo fajl odloži u /etc/yum.repos.d/ -
-  # rpm ovisnosti (redhat-release/epel-release verzija) su konzervativan gate
-  # bez stvarnog funkcionalnog razloga za nas slucaj, pa se instalira izravno
-  # preko rpm -Uvh --nodeps (zaobilazi dnf-ovu strozu provjeru ovisnosti).
+- name: Instaliraj Remi repozitorij (EL8 - rpm --nodeps, dnf odbija zbog redhat-release>=8.10)
   command: rpm -Uvh --nodeps /tmp/remi-release.rpm
-  when: not remi_repo_file.stat.exists
+  when:
+    - not remi_repo_file.stat.exists
+    - ansible_distribution_major_version is version('9', '<')
 
 - name: Resetiraj default PHP modul stream
   # cmd: dict oblik namjerno, ne free-form string - Ansible 2.9 (RHA
@@ -108,11 +117,21 @@
 # ostane nerjesiv, ne blokira instalaciju SVEGA ostalog - Moodle radi i bez
 # GD-a, samo s degradiranom slikovnom obradom).
 # ---------------------------------------------------------------------------
-- name: Omoguci EPEL (nedostajuce slikovne biblioteke za php-gd)
+- name: Omoguci EPEL (EL8 - php-gd slikovne biblioteke na starom rhel8 imageu)
   ansible.builtin.dnf:
     name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
     state: present
     disable_gpg_check: true
+  when: ansible_distribution_major_version is version('9', '<')
+
+- name: Omoguci EPEL (EL9)
+  # Na Rocky 9 php-gd ovisnosti se rjesavaju iz baze/AppStreama; EPEL vec
+  # dolazi kao ovisnost remi-releasea. Eksplicitan install je osigurac s
+  # ispravnom EL verzijom (paket je u Rocky "extras" repou, ukljucenom po defaultu).
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+  when: ansible_distribution_major_version is version('9', '>=')
 
 - name: Instaliraj Apache, PHP 8.3 i potrebne ekstenzije
   ansible.builtin.dnf:
@@ -159,147 +178,216 @@
   register: firewalld_http
   changed_when: "'ALREADY_ENABLED' not in firewalld_http.stderr"
 
+# HA par: DB primary mora primati MariaDB (3306) od sekundarne instance.
+# Bez ovoga firewalld radi "reject" s ICMP host-prohibited pa klijent vidi
+# "No route to host". Pristup je i dalje ogranicen NSG-om na vlastitu spoke
+# mrezu ("AllowMySQLWithinSpoke"). Samo primary - sekundarna ne slusa 3306.
+- name: Otvori MySQL port u firewalld (DB primary HA para)
+  command:
+    cmd: firewall-cmd --permanent --add-port=3306/tcp
+  register: firewalld_mysql
+  changed_when: "'ALREADY_ENABLED' not in firewalld_mysql.stderr"
+  when: moodle_db_primary | default(true)
+
 - name: Primijeni firewalld promjene
   command:
     cmd: firewall-cmd --reload
   changed_when: true
 
-# ---------------------------------------------------------------------------
-# MariaDB - datadir je vec mountan na data disk (mount_storage rola),
-# poklapa se s paketnim defaultom /var/lib/mysql pa nije potrebna dodatna
-# konfiguracija putanje. Moodle 5.1 zahtijeva MariaDB 10.11+, Rocky 9
-# AppStream default je 10.5 - koristi se sluzbeni MariaDB repo.
-# ---------------------------------------------------------------------------
-- name: Ukloni stari mariadb-server (AppStream, prenizak za Moodle 5.1)
-  ansible.builtin.dnf:
-    name: mariadb-server
-    state: absent
+# ===========================================================================
+# MariaDB - datadir je vec mountan na data disk (mount_storage rola), poklapa
+# se s paketnim defaultom /var/lib/mysql. Moodle 5.1 zahtijeva MariaDB 10.11+.
+#
+# HA PAR DIJELI JEDNU BAZU: samo DB primary instanca (prva po abecedi u dev
+# grupi, npr. moodle-dev01-01 - vidi generate_inventory.py) instalira i vrti
+# MariaDB; sekundarna instanca preskace CIJELI ovaj blok i spaja se na
+# primarnu preko privatnog IP-a ($CFG->dbhost = moodle_db_host, vidi
+# config.php.j2 + NSG AllowMySQLWithinSpoke). Bez toga svaka instanca ima
+# svoju bazu/sesije pa login puca iza internog LB-a (token generira jedna,
+# provjerava druga). moodledata (datoteke) je vec dijeljen preko Blob/Swift.
+#
+# moodle_db_primary NIJE definiran na OpenStacku / samostalnoj instanci ->
+# default(true) -> ponasanje kao prije (svaka instanca svoja lokalna baza;
+# tamo nema pravog LB-a pa su instance ionako samostalne - vidi
+# generate_inventory_openstack.py).
+# ===========================================================================
+- name: MariaDB (samo DB primary HA para - sekundarna se spaja preko mreze)
+  when: moodle_db_primary | default(true)
+  block:
+    - name: Ukloni stari mariadb-server (AppStream, prenizak za Moodle 5.1)
+      ansible.builtin.dnf:
+        name: mariadb-server
+        state: absent
 
-- name: Dodaj sluzbeni MariaDB repozitorij (10.11)
-  ansible.builtin.yum_repository:
-    name: mariadb
-    description: MariaDB 10.11
-    baseurl: https://rpm.mariadb.org/10.11/rhel/$releasever/$basearch
-    gpgkey: https://rpm.mariadb.org/RPM-GPG-KEY-MariaDB
-    gpgcheck: true
+    - name: Dodaj sluzbeni MariaDB repozitorij (10.11)
+      ansible.builtin.yum_repository:
+        name: mariadb
+        description: MariaDB 10.11
+        baseurl: https://rpm.mariadb.org/10.11/rhel/$releasever/$basearch
+        gpgkey: https://rpm.mariadb.org/RPM-GPG-KEY-MariaDB
+        gpgcheck: true
 
-# ---------------------------------------------------------------------------
-# Live testirano 9.9.2026 na OpenStack RHEL8 sandboxu, TRI odvojena nalaza
-# redom (nakon EPEL/php-gd fixa):
-# 1. "MariaDB-server All matches were filtered out by modular filtering" -
-#    RHEL8 AppStream ima ugradjeni "mariadb" MODUL (stream 10.3). DNF
-#    modularno filtriranje sakriva paket s istim imenom iz SVIH repoa
-#    (ukljucujuci mariadb.org) DOK JE TAJ MODUL PRISUTAN - cak i kad je
-#    eksplicitno "disable"-an (`dnf module disable` suprotno intuiciji NE
-#    oslobadja namespace za non-modularne pakete, samo blokira instalaciju
-#    IZ modula). Jedini pouzdan nacin zaobici modularno filtriranje je
-#    --disablerepo na sam AppStream repo za trajanje ovog installa.
-# 2. MariaDB-server ima hard "Requires: galera-4" (Galera cluster
-#    replikacija - ne trebamo je, single-node instanca), a galera-4 na ovom
-#    starom RHEL8.2 image-u zahtijeva libboost_program_options.so.1.66
-#    kojeg nema ni u jednom dostupnom repou (isti "star image, nov paket"
-#    obrazac kao Remi/php-gd problemi ranije). --skip-broken/--nobest ne
-#    pomazu (dnf odbija CIJELI paket) - jedini nacin je rpm -Uvh --nodeps
-#    izravno na server RPM (zaobilazi dnf-ov depsolver potpuno), preuzet
-#    posebno preko `dnf download`.
-# 3. rpm --nodeps na SAM server RPM izostavlja i pakete koje STVARNO treba
-#    (MariaDB-common/-client/-shared - "my_print_defaults" i sl. alati
-#    potrebni inicijalizacijskoj skripti) jer --nodeps ne instalira NIKAKVE
-#    ovisnosti, ne samo galeru. Ti paketi NEMAJU galera/boost problem pa se
-#    instaliraju normalno preko dnf (samo s --disablerepo za appstream), PA
-#    TEK ONDA server preko rpm --nodeps.
-# ---------------------------------------------------------------------------
-- name: Instaliraj MariaDB-common/client/shared (bez appstream modularnog filtriranja)
-  ansible.builtin.dnf:
-    name:
-      - MariaDB-common
-      - MariaDB-client
-      - MariaDB-shared
-    state: present
-    disable_gpg_check: true
-    disablerepo: "*appstream*"
+    # EL9 (Azure Rocky 9): obican dnf. MariaDB-server iz sluzbenog mariadb.org
+    # repoa povlaci MariaDB-client/-common/-shared/galera-4 kao ovisnosti; sve
+    # se uredno rjesava jer je AppStream UKLJUCEN (perl(DBI)/perl(File::Copy)/
+    # perl(Sys::Hostname) za MariaDB-client zive tamo) i galera-4 za EL9 ne
+    # vuce zastarjele boost biblioteke.
+    - name: Instaliraj MariaDB 10.11 (EL9 - obican dnf)
+      ansible.builtin.dnf:
+        name: MariaDB-server
+        state: present
+        disable_gpg_check: true
+      when: ansible_distribution_major_version is version('9', '>=')
 
-- name: Provjeri je li MariaDB-server vec instaliran
-  # Kratko ime ("command:", ne "ansible.builtin.command:") - isti FQCN+
-  # dict-cmd+extra-kljuc bug kao svugdje drugdje u ovom projektu na
-  # Ansible 2.9.11 (RHA workstation) - vidi CLAUDE.md/common rolu. Ovdje
-  # se manifestirao drukcije nego ranije: task se TIHO "preskace" (register
-  # var zavrsi bez "rc" atributa) umjesto eksplicitne "extra params" greske.
-  command: rpm -q MariaDB-server
-  register: mariadb_server_rpm
-  failed_when: false
-  changed_when: false
+    # -----------------------------------------------------------------------
+    # EL8 (OpenStack RHA rhel8 image), TRI odvojena nalaza (live 9.9.2026):
+    # 1. "All matches were filtered out by modular filtering" - RHEL8
+    #    AppStream ima "mariadb" MODUL (stream 10.3) koji sakriva paket istog
+    #    imena iz SVIH repoa dok postoji, cak i "disable"-an. Jedini zaobilaz
+    #    je --disablerepo na AppStream. (Na EL9 bi to izbacilo perl(DBI) i sl.
+    #    koje MariaDB-client treba - zato EL8-only.)
+    # 2. MariaDB-server ima hard "Requires: galera-4", a galera-4 na starom
+    #    RHEL8.2 imageu trazi libboost_program_options.so.1.66 kojeg nema -
+    #    jedini nacin je rpm -Uvh --nodeps izravno na server RPM.
+    # 3. rpm --nodeps izostavlja i pakete koje STVARNO treba (MariaDB-common/
+    #    -client/-shared) - ti nemaju galera/boost problem pa idu normalno
+    #    preko dnf (samo s --disablerepo), PA TEK ONDA server.
+    # -----------------------------------------------------------------------
+    - name: Instaliraj MariaDB-common/client/shared (EL8 - bez appstream modularnog filtriranja)
+      ansible.builtin.dnf:
+        name:
+          - MariaDB-common
+          - MariaDB-client
+          - MariaDB-shared
+        state: present
+        disable_gpg_check: true
+        disablerepo: "*appstream*"
+      when: ansible_distribution_major_version is version('9', '<')
 
-- name: Kreiraj privremeni direktorij za preuzimanje MariaDB-server RPM-a
-  ansible.builtin.file:
-    path: /tmp/mariadb-server-rpm
-    state: directory
-    mode: "0755"
-  when: mariadb_server_rpm.rc != 0
+    - name: Provjeri je li MariaDB-server vec instaliran (EL8)
+      command: rpm -q MariaDB-server
+      register: mariadb_server_rpm
+      failed_when: false
+      changed_when: false
+      when: ansible_distribution_major_version is version('9', '<')
 
-- name: Preuzmi MariaDB-server RPM (za rucnu instalaciju bez galera ovisnosti)
-  command:
-    cmd: dnf download MariaDB-server --disablerepo="*appstream*" --destdir=/tmp/mariadb-server-rpm
-  when: mariadb_server_rpm.rc != 0
-  changed_when: true
+    - name: Kreiraj privremeni direktorij za preuzimanje MariaDB-server RPM-a (EL8)
+      ansible.builtin.file:
+        path: /tmp/mariadb-server-rpm
+        state: directory
+        mode: "0755"
+      when:
+        - ansible_distribution_major_version is version('9', '<')
+        - mariadb_server_rpm.rc | default(1) != 0
 
-- name: 'Instaliraj MariaDB-server (rpm --nodeps - zaobilazi hard "Requires: galera-4")'
-  shell:
-    cmd: rpm -Uvh --nodeps /tmp/mariadb-server-rpm/MariaDB-server-*.rpm
-  when: mariadb_server_rpm.rc != 0
-  changed_when: true
+    - name: Preuzmi MariaDB-server RPM (EL8 - rucna instalacija bez galera ovisnosti)
+      command:
+        cmd: dnf download MariaDB-server --disablerepo="*appstream*" --destdir=/tmp/mariadb-server-rpm
+      when:
+        - ansible_distribution_major_version is version('9', '<')
+        - mariadb_server_rpm.rc | default(1) != 0
+      changed_when: true
 
-- name: Popravi vlasnistvo /var/lib/mysql nakon mounta (prije inicijalizacije)
-  ansible.builtin.file:
-    path: "{{ mariadb_datadir }}"
-    owner: mysql
-    group: mysql
-    mode: "0755"
+    - name: 'Instaliraj MariaDB-server (EL8 - rpm --nodeps, zaobilazi hard "Requires: galera-4")'
+      shell:
+        cmd: rpm -Uvh --nodeps /tmp/mariadb-server-rpm/MariaDB-server-*.rpm
+      when:
+        - ansible_distribution_major_version is version('9', '<')
+        - mariadb_server_rpm.rc | default(1) != 0
+      changed_when: true
 
-- name: Provjeri je li MariaDB 10.11 vec inicijaliziran (nas marker)
-  ansible.builtin.stat:
-    path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
-  register: mariadb_1011_marker
+    - name: Popravi vlasnistvo /var/lib/mysql nakon mounta (prije inicijalizacije)
+      ansible.builtin.file:
+        path: "{{ mariadb_datadir }}"
+        owner: mysql
+        group: mysql
+        mode: "0755"
 
-- name: Ocisti stare (10.5) sistemske tablice - nekompatibilne s 10.11 (samo jednom)
-  shell:
-    cmd: rm -rf {{ mariadb_datadir }}/*
-  when: not mariadb_1011_marker.stat.exists
+    # HA par: sekundarna instanca se spaja preko mreze, pa MariaDB mora
+    # slusati na svim sucेljima (mariadb.org paket po defaultu vec slusa na
+    # 0.0.0.0, ali eksplicitno je jasnije i otporno na buduce promjene
+    # defaulta). Pristup je i dalje ogranicen NSG-om na vlastitu spoke mrezu.
+    - name: MariaDB - slusaj na svim sucсеljima (bind-address 0.0.0.0)
+      ansible.builtin.copy:
+        dest: /etc/my.cnf.d/z-techsprint-bind.cnf
+        content: |
+          [mariadb]
+          bind-address = 0.0.0.0
+        owner: root
+        group: root
+        mode: "0644"
+      register: mariadb_bind_cfg
 
-- name: Inicijaliziraj MariaDB sistemske tablice (idempotentno)
-  command:
-    cmd: mariadb-install-db --datadir={{ mariadb_datadir }} --user=mysql
-    creates: "{{ mariadb_datadir }}/mysql/user.MYD"
+    - name: Provjeri je li MariaDB 10.11 vec inicijaliziran (nas marker)
+      ansible.builtin.stat:
+        path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
+      register: mariadb_1011_marker
 
-- name: Oznaci da je MariaDB 10.11 inicijalizacija zavrsena
-  ansible.builtin.file:
-    path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
-    state: touch
-    owner: mysql
-    group: mysql
+    - name: Ocisti stare (10.5) sistemske tablice - nekompatibilne s 10.11 (samo jednom)
+      shell:
+        cmd: rm -rf {{ mariadb_datadir }}/*
+      when: not mariadb_1011_marker.stat.exists
 
-- name: Pokreni i omoguci MariaDB
+    - name: Inicijaliziraj MariaDB sistemske tablice (idempotentno)
+      command:
+        cmd: mariadb-install-db --datadir={{ mariadb_datadir }} --user=mysql
+        creates: "{{ mariadb_datadir }}/mysql/user.MYD"
+
+    - name: Oznaci da je MariaDB 10.11 inicijalizacija zavrsena
+      ansible.builtin.file:
+        path: "{{ mariadb_datadir }}/.techsprint_mariadb_1011_initialized"
+        state: touch
+        owner: mysql
+        group: mysql
+
+    - name: Pokreni i omoguci MariaDB
+      ansible.builtin.systemd:
+        name: mariadb
+        state: started
+        enabled: true
+
+    - name: Restartaj MariaDB da primijeni bind-address (ako je config promijenjen)
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted
+      when: mariadb_bind_cfg is changed
+
+    - name: Kreiraj Moodle bazu podataka
+      command:
+        cmd: >
+          mysql -e "CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }}
+          CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+      changed_when: true
+
+    # HA par: Moodle se na bazu spaja preko TCP-a (i primarna instanca preko
+    # svog privatnog IP-a, ne socketa - jednolika config.php), a sekundarna s
+    # drugog IP-a - pa grant ide na '%' umjesto 'localhost'. Pristup je
+    # ogranicen NSG-om ("AllowMySQLWithinSpoke", samo vlastita spoke mreza).
+    # Na samostalnoj instanci (moodle_db_host nepostavljen -> 'localhost')
+    # koristi se 'localhost' (socket veza).
+    - name: Kreiraj Moodle DB korisnika i dodijeli prava (samo na moodle bazu)
+      command:
+        cmd: >
+          mysql -e "CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'{{ moodle_db_grant_host }}'
+          IDENTIFIED BY '{{ moodle_db_password }}';
+          GRANT ALL PRIVILEGES ON {{ moodle_db_name }}.* TO '{{ moodle_db_user }}'@'{{ moodle_db_grant_host }}';
+          FLUSH PRIVILEGES;"
+      no_log: true
+      changed_when: true
+      vars:
+        moodle_db_grant_host: "{{ '%' if (moodle_db_host | default('localhost')) != 'localhost' else 'localhost' }}"
+
+# Sekundarna instanca HA para koristi bazu primarne preko mreze - lokalnu
+# MariaDB (ako je zaostala iz ranijeg run-a kad su instance bile samostalne)
+# zaustavi i onemoguci da ne trosi RAM i ne zbunjuje. failed_when: false -
+# na cistoj sekundarnoj instanci mariadb.service uopce ne postoji.
+- name: Zaustavi lokalnu MariaDB na sekundarnoj instanci HA para
   ansible.builtin.systemd:
     name: mariadb
-    state: started
-    enabled: true
-
-- name: Kreiraj Moodle bazu podataka
-  command:
-    cmd: >
-      mysql -e "CREATE DATABASE IF NOT EXISTS {{ moodle_db_name }}
-      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-  changed_when: true
-
-- name: Kreiraj Moodle DB korisnika i dodijeli prava (samo na moodle bazu)
-  command:
-    cmd: >
-      mysql -e "CREATE USER IF NOT EXISTS '{{ moodle_db_user }}'@'localhost'
-      IDENTIFIED BY '{{ moodle_db_password }}';
-      GRANT ALL PRIVILEGES ON {{ moodle_db_name }}.* TO '{{ moodle_db_user }}'@'localhost';
-      FLUSH PRIVILEGES;"
-  no_log: true
-  changed_when: true
+    state: stopped
+    enabled: false
+  failed_when: false
+  when: not (moodle_db_primary | default(true))
 
 # ---------------------------------------------------------------------------
 # Moodle kod + config, dataroot pokazuje na blobfuse2-mountani direktorij
@@ -410,6 +498,9 @@
     state: started
     enabled: true
 
+# Samo DB primary puni (dijeljenu) bazu - sekundarna instanca HA para gleda
+# istu bazu pa bi drugi install_database.php samo vidio da je sve vec tu.
+# Na samostalnoj instanci (moodle_db_primary nepostavljen) -> default(true).
 - name: Pokreni Moodle CLI instalaciju (idempotentno - preskace ako su tablice vec tu)
   command:
     cmd: >
@@ -425,6 +516,7 @@
     'already present' not in moodle_install_result.stderr
   changed_when: moodle_install_result.rc == 0
   no_log: true
+  when: moodle_db_primary | default(true)
 
 - name: Popravi vlasnistvo koda nakon instalacije (installer je pokrenut kao root)
   ansible.builtin.file:

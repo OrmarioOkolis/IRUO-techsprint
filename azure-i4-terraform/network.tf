@@ -171,6 +171,23 @@ resource "azurerm_network_security_group" "spoke" {
     destination_application_security_group_ids = [azurerm_application_security_group.moodle[each.key].id]
   }
 
+  # MariaDB (3306) samo unutar vlastite spoke mreže: HA par dijeli JEDNU bazu
+  # (primarna instanca -01 hosta MariaDB, sekundarna -02 se spaja preko mreže),
+  # da login/sesije/podaci budu konzistentni iza internog LB-a. moodledata
+  # (datoteke) je vec dijeljen preko Blob Storagea. Baza NIJE izlozena izvan
+  # spoke mreze (nema pravila prema hubu ni internetu).
+  security_rule {
+    name                                       = "AllowMySQLWithinSpoke"
+    priority                                   = 115
+    direction                                  = "Inbound"
+    access                                     = "Allow"
+    protocol                                   = "Tcp"
+    source_port_range                          = "*"
+    destination_port_range                     = "3306"
+    source_address_prefix                      = "${var.spoke_vnet_cidr_prefix}.${each.value.index}.0/24"
+    destination_application_security_group_ids = [azurerm_application_security_group.moodle[each.key].id]
+  }
+
   # Azure LB health probe dolazi s ove service tag adrese
   security_rule {
     name                                       = "AllowAzureLBProbe"
