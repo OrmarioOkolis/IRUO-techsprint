@@ -419,11 +419,28 @@ def main_openstack(args, lead, developers):
             cwd=OS_COMPUTE_DEV_DIR, env=dev_env,
         )
 
-    print(
-        "\nGotovo - OpenStack infrastruktura gore za sve osobe iz CSV-a "
-        "(jump host, DevOps Lead, 2x Moodle po developeru + diskovi/Swift/Manila). "
-        "Ansible instalacija Moodlea na OpenStack VM-ovima JOS NIJE napisana."
-    )
+    print("\nOpenStack infrastruktura gore. Nastavljam s Ansibleom (Moodle instalacija)...")
+
+    if args.skip_ansible:
+        print("--skip-ansible: infrastruktura gotova, Moodle NIJE instaliran.")
+        return
+
+    # 6) Ansible: inventory iz OpenStack Terraform outputa, pa playbook.
+    #    ANSIBLE_CONFIG eksplicitno (ansible.cfg se ignorira na world-writable
+    #    putanji); --forks 2 zbog jump host MaxStartups (kao Azure). OS_* env
+    #    varijable (OS_AUTH_URL...) iz vec sourceanog admin-rc idu dalje kroz
+    #    os.environ - generate_inventory_openstack.py ih treba za Swift auth.
+    ansible_env = {**os.environ, "ANSIBLE_CONFIG": str(ANSIBLE_DIR / "ansible.cfg")}
+    ansible_env.pop("OS_PROJECT_NAME", None)   # inventory skripta sama scope-a po devu
+    ansible_env.pop("OS_PROJECT_ID", None)
+    run([sys.executable, str(ANSIBLE_DIR / "inventory" / "generate_inventory_openstack.py")],
+        cwd=ANSIBLE_DIR, env=ansible_env)
+    run(["ansible-galaxy", "collection", "install", "-r", "requirements.yml"],
+        cwd=ANSIBLE_DIR, env=ansible_env)
+    run(["ansible-playbook", "-i", "inventory/hosts-openstack.yml", "site-openstack.yml", "--forks", "2"],
+        cwd=ANSIBLE_DIR, env=ansible_env)
+
+    print("\nGotovo - OpenStack infrastruktura + Moodle instaliran za sve osobe iz CSV-a.")
 
 
 def main():
