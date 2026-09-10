@@ -334,9 +334,16 @@ def main_azure(args, lead, developers):
         return
 
     # 3) Ansible inventory iz I4 outputa, pa playbook (mount storage + Moodle instalacija).
+    #    ANSIBLE_CONFIG eksplicitno - ansible.cfg se tiho ignorira kad je repo na
+    #    world-writable putanji (WSL /mnt/d), pa bi bez ovoga pipelining/host key
+    #    postavke pale na default. --forks 2 - jump host default MaxStartups +
+    #    visi forks povremeno daju "timeout during banner exchange" na ProxyJumpu
+    #    (vidi memory ansible-jump-host-maxstartups).
+    ansible_env = {**os.environ, "ANSIBLE_CONFIG": str(ANSIBLE_DIR / "ansible.cfg")}
     run([sys.executable, str(ANSIBLE_DIR / "inventory" / "generate_inventory.py")], cwd=ANSIBLE_DIR)
-    run(["ansible-galaxy", "collection", "install", "-r", "requirements.yml"], cwd=ANSIBLE_DIR)
-    run(["ansible-playbook", "-i", "inventory/hosts.yml", "site.yml"], cwd=ANSIBLE_DIR)
+    run(["ansible-galaxy", "collection", "install", "-r", "requirements.yml"], cwd=ANSIBLE_DIR, env=ansible_env)
+    run(["ansible-playbook", "-i", "inventory/hosts.yml", "site.yml", "--forks", "2"],
+        cwd=ANSIBLE_DIR, env=ansible_env)
 
     print("\nGotovo - infrastruktura na Azureu + Moodle instaliran za sve osobe iz CSV-a.")
 
