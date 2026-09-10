@@ -41,7 +41,21 @@ def build_inventory(outputs, admin_user, ssh_key_path):
     kv_names = outputs["key_vault_names"]
     lb_ips = outputs["moodle_lb_frontend_ips"]
 
-    proxy = f"-o ProxyJump={admin_user}@{jump_ip} -o StrictHostKeyChecking=no"
+    # ProxyCommand (ne ProxyJump) s EKSPLICITNIM -i kljucem: OpenSSH kod
+    # "-o ProxyJump=host" NE prosljedjuje "-i" iz glavne komande na skok prema
+    # jump hostu - taj hop koristi vlastito rjesavanje kljuca (~/.ssh/id_rsa +
+    # agent). Ako kljuc nije u agentu ni na default putanji, jump odbija auth i
+    # veza se zatvori s "Connection closed by UNKNOWN port 65535" (live
+    # otkriveno 10.9.2026 nakon clean rebuilda - ranije je "radilo" samo jer je
+    # kljuc bio u ssh-agentu). ProxyCommand s "-i" rjesava to trajno.
+    # UserKnownHostsFile=/dev/null na jump hopu izbjegava i problem zastarjelih
+    # host kljuceva za javni IP jump hosta nakon rebuilda.
+    key = os.path.expanduser(ssh_key_path)
+    proxy = (
+        f'-o ProxyCommand="ssh -i {key} -W %h:%p '
+        f'-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null '
+        f'{admin_user}@{jump_ip}"'
+    )
 
     dev_ids = sorted({k.rsplit("-", 1)[0] for k in moodle_ips.keys()})
 
@@ -50,7 +64,7 @@ def build_inventory(outputs, admin_user, ssh_key_path):
             "vars": {
                 "ansible_user": admin_user,
                 "ansible_ssh_private_key_file": ssh_key_path,
-                "ansible_ssh_extra_args": "-o StrictHostKeyChecking=no",
+                "ansible_ssh_extra_args": "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
             },
             "children": {
                 "jump": {
@@ -74,12 +88,20 @@ def build_inventory(outputs, admin_user, ssh_key_path):
     for dev_id in dev_ids:
         group_name = dev_id
         hosts = {}
-        for key, ip in moodle_ips.items():
-            if key.startswith(dev_id + "-"):
-                hosts[f"moodle-{key}"] = {
-                    "ansible_host": ip,
-                    "ansible_ssh_common_args": proxy,
-                }
+        # HA par dijeli JEDNU MariaDB bazu (vidi azure-i4-terraform NSG
+        # "AllowMySQLWithinSpoke" i moodle rolu): prva instanca po abecedi
+        # (npr. dev01-01) je DB primary i hosta MariaDB, ostale se spajaju na
+        # nju preko privatnog IP-a. Bez toga svaka instanca ima svoju bazu/
+        # sesije pa login puca iza LB-a (token generira jedna, provjerava druga).
+        dev_host_keys = sorted(k for k in moodle_ips if k.startswith(dev_id + "-"))
+        primary_key = dev_host_keys[0]
+        primary_ip = moodle_ips[primary_key]
+        for key in dev_host_keys:
+            hosts[f"moodle-{key}"] = {
+                "ansible_host": moodle_ips[key],
+                "ansible_ssh_common_args": proxy,
+                "moodle_db_primary": key == primary_key,
+            }
         inventory["all"]["children"]["moodle"]["children"][group_name] = {
             "hosts": hosts,
             "vars": {
@@ -87,6 +109,7 @@ def build_inventory(outputs, admin_user, ssh_key_path):
                 "storage_account_name": storage_names[dev_id],
                 "key_vault_name": kv_names[dev_id],
                 "moodle_wwwroot": f"http://{lb_ips[dev_id]}",
+                "moodle_db_host": primary_ip,
             },
         }
 

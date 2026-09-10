@@ -21,6 +21,26 @@
   raw: mkdir -p /tmp/.ansible-remote-tmp && chmod 1777 /tmp/.ansible-remote-tmp
   changed_when: false
 
+# Zastita: ako je zaostao EPEL repo POGRESNE EL verzije (npr. el8 EPEL na
+# Rocky 9 - moglo se dogoditi ako je ranija verzija moodle role instalirala
+# "epel-release-latest-8.noarch.rpm" bez EL grananja), povuku se el8 lib
+# paketi (libavif/libraqm/libaom/...) i sljedeci "dnf * latest" puca na
+# depsolve konfliktu (el8 lib vs remi-safe koji trazi noviju verziju). Ovaj
+# task to detektira po neskladu epel-release VERSION-a i major verzije distra,
+# uklanja krivi EPEL i distro-sync-a natrag na ispravne repoe. Idempotentno -
+# na ispravnom sustavu (ili bez EPEL-a) ne radi nista.
+- name: Ukloni EPEL repo pogresne EL verzije ako je zaostao
+  shell: |
+    inst=$(rpm -q --qf '%{VERSION}' epel-release 2>/dev/null || true)
+    if [ -n "$inst" ] && [ "$inst" != "{{ ansible_distribution_major_version }}" ]; then
+      dnf -y remove epel-release
+      rm -f /etc/yum.repos.d/epel*.repo
+      dnf -y --allowerasing distro-sync
+      echo FIXED_WRONG_EPEL
+    fi
+  register: wrong_epel_fix
+  changed_when: "'FIXED_WRONG_EPEL' in wrong_epel_fix.stdout"
+
 # exclude: ansible* - live testirano 9.9.2026 (dvaput, u istoj sesiji): kad
 # je EPEL omogucen (moodle rola ga treba za php-gd slikovne biblioteke -
 # vidi ansible/roles/moodle/tasks/main.yml), EPEL-ov "ansible" paket
