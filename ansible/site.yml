@@ -11,6 +11,18 @@
 - name: Priprema svih VM-ova (jump, lead, moodle)
   hosts: all
   become: true
+  gather_facts: false
+  pre_tasks:
+    # Svjez deploy: terraform apply zavrsi prije nego je sshd/cloud-init na
+    # novim VM-ovima spreman -> bez ovoga prvi ansible-playbook run pada s
+    # "UNREACHABLE / Connection closed by UNKNOWN". wait_for_connection ceka
+    # da veza prodje (i kroz ProxyCommand na jump host).
+    - name: Pricekaj da VM-ovi prihvate SSH vezu
+      ansible.builtin.wait_for_connection:
+        timeout: 420
+        sleep: 10
+    - name: Prikupi fakte nakon uspostave veze
+      ansible.builtin.setup:
   roles:
     - common
 
