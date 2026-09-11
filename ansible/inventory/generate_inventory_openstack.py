@@ -155,10 +155,17 @@ def to_yaml(data, indent=0):
 
 
 def yaml_scalar(v):
+    # UVIJEK quote-aj stringove (json.dumps je valjan YAML flow scalar) -
+    # live otkriveno 11.9.2026: generirane Keystone lozinke (random_password
+    # u Terraformu) mogu sadrzavati YAML specijalne znakove ([](){}*&!|>'"%
+    # itd.) koje ranija "quote samo ako sadrzi : # ili \"" heuristika nije
+    # hvatala (npr. "[Y8(0dZcXn]5qP7oGX*P") - takav string pokvari CIJELI
+    # YAML parse (Ansible je prijavio "Invalid host pattern 'all:'" jer je
+    # ostatak fajla nakon te linije bio krivo strukturiran), a
+    # ansible-playbook svejedno vrati exit 0 (0 hostova = "nista za odraditi",
+    # ne greska) pa je provision.py tiho "uspio" bez ijednog izvrsenog taska.
     if isinstance(v, str):
-        if any(c in v for c in [":", "#", '"']) or v == "":
-            return json.dumps(v)
-        return v
+        return json.dumps(v)
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)

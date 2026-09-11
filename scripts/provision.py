@@ -293,6 +293,34 @@ def run(cmd, cwd=None, env=None):
         sys.exit(f"Naredba nije uspjela (exit {result.returncode}): {' '.join(cmd)}")
 
 
+def verify_inventory_has_hosts(inventory_file, cwd, env=None):
+    """`ansible-playbook` vraca exit 0 cak i kad inventory NIJE parsiran (0
+    hostova = "nista za odraditi", ne greska) - live otkriveno 11.9.2026:
+    generirana lozinka sa YAML specijalnim znakovima je pokvarila
+    hosts-openstack.yml, ansible je odigrao "0 hosts matched" na sve 3 playa,
+    a skripta je svejedno ispisala "Gotovo" bez da je ista stvarno napravljeno.
+    Ovaj check pokrece `ansible-inventory --list` i provjerava da je barem
+    jedan host stvarno parsiran PRIJE nego se krene na (dugacak) playbook run."""
+    result = subprocess.run(
+        ["ansible-inventory", "-i", inventory_file, "--list"],
+        cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+    )
+    if result.returncode != 0:
+        sys.exit(f"'ansible-inventory' nije uspio parsirati {inventory_file}:\n{result.stderr}")
+    try:
+        parsed = json.loads(result.stdout)
+    except ValueError:
+        sys.exit(f"'ansible-inventory' output nije valjan JSON za {inventory_file}:\n{result.stdout}")
+    hosts = parsed.get("_meta", {}).get("hostvars", {})
+    if not hosts:
+        sys.exit(
+            f"Inventory {inventory_file} se parsira, ali NEMA host-ova (0 hostova) - "
+            f"vjerojatno je neki generirani string pokvario YAML (npr. lozinka sa "
+            f"specijalnim znakovima bez quote-anja). Provjeri fajl rucno prije nastavka."
+        )
+    print(f"Inventory provjeren: {len(hosts)} host(ova) u {inventory_file}.")
+
+
 def main_azure(args, lead, developers):
     assign_dev_ids_and_regions(developers)
 
@@ -341,6 +369,7 @@ def main_azure(args, lead, developers):
     #    (vidi memory ansible-jump-host-maxstartups).
     ansible_env = {**os.environ, "ANSIBLE_CONFIG": str(ANSIBLE_DIR / "ansible.cfg")}
     run([sys.executable, str(ANSIBLE_DIR / "inventory" / "generate_inventory.py")], cwd=ANSIBLE_DIR)
+    verify_inventory_has_hosts("inventory/hosts.yml", cwd=ANSIBLE_DIR, env=ansible_env)
     run(["ansible-galaxy", "collection", "install", "-r", "requirements.yml"], cwd=ANSIBLE_DIR, env=ansible_env)
     run(["ansible-playbook", "-i", "inventory/hosts.yml", "site.yml", "--forks", "2"],
         cwd=ANSIBLE_DIR, env=ansible_env)
@@ -435,6 +464,7 @@ def main_openstack(args, lead, developers):
     ansible_env.pop("OS_PROJECT_ID", None)
     run([sys.executable, str(ANSIBLE_DIR / "inventory" / "generate_inventory_openstack.py")],
         cwd=ANSIBLE_DIR, env=ansible_env)
+    verify_inventory_has_hosts("inventory/hosts-openstack.yml", cwd=ANSIBLE_DIR, env=ansible_env)
     run(["ansible-galaxy", "collection", "install", "-r", "requirements.yml"],
         cwd=ANSIBLE_DIR, env=ansible_env)
     run(["ansible-playbook", "-i", "inventory/hosts-openstack.yml", "site-openstack.yml", "--forks", "2"],

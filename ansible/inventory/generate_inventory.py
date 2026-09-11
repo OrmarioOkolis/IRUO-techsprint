@@ -134,10 +134,12 @@ def to_yaml(data, indent=0):
 
 
 def yaml_scalar(v):
+    # UVIJEK quote-aj stringove (json.dumps je valjan YAML flow scalar) - vidi
+    # istu napomenu u generate_inventory_openstack.py (live 11.9.2026): stara
+    # "quote samo ako sadrzi : # ili \"" heuristika ne hvata YAML specijalne
+    # znakove kao [](){}*&!|>'"%, koje generirane lozinke mogu sadrzavati.
     if isinstance(v, str):
-        if any(c in v for c in [":", "#", '"']) or v == "":
-            return json.dumps(v)
-        return v
+        return json.dumps(v)
     if isinstance(v, bool):
         return "true" if v else "false"
     return str(v)
