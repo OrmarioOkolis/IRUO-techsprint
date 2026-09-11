@@ -29,7 +29,14 @@
 # task to detektira po neskladu epel-release VERSION-a i major verzije distra,
 # uklanja krivi EPEL i distro-sync-a natrag na ispravne repoe. Idempotentno -
 # na ispravnom sustavu (ili bez EPEL-a) ne radi nista.
-- name: Ukloni EPEL repo pogresne EL verzije ako je zaostao
+#
+# SAMO na moodle grupi - live otkriveno 11.9.2026: OpenStack rhel8 base
+# image (RHA sandbox) ima vec predinstaliran epel-release cija VERSION ne
+# odgovara ansible_distribution_major_version, pa je ovaj task na jump/lead
+# hostovima (koji NIKAD ne instaliraju EPEL preko nase moodle role) pokrenuo
+# pravi visestruko-minutni "dnf --allowerasing distro-sync" bez ikakve
+# funkcionalne potrebe - samo trosi vrijeme. Jump/lead ne trebaju EPEL fix.
+- name: Ukloni EPEL repo pogresne EL verzije ako je zaostao (samo Moodle VM-ovi)
   shell: |
     inst=$(rpm -q --qf '%{VERSION}' epel-release 2>/dev/null || true)
     if [ -n "$inst" ] && [ "$inst" != "{{ ansible_distribution_major_version }}" ]; then
@@ -39,6 +46,7 @@
       echo FIXED_WRONG_EPEL
     fi
   register: wrong_epel_fix
+  when: inventory_hostname in groups.get('moodle', [])
   changed_when: "'FIXED_WRONG_EPEL' in wrong_epel_fix.stdout"
 
 # exclude: ansible* - live testirano 9.9.2026 (dvaput, u istoj sesiji): kad
