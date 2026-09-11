@@ -507,7 +507,7 @@
 # ne "state: latest" - paket je vec na najnovijoj verziji po RPM bazi (samo je
 # fizicka .so datoteka prazan placeholder), pa "latest" ne bi nista napravio.
 - name: Reinstaliraj prazne stub biblioteke iz baznog RHEL8 image-a (gd/sodium/capstone lanac)
-  ansible.builtin.command:
+  command:
     cmd: dnf reinstall -y gd3php libavif libaom libdav1d libimagequant capstone
   changed_when: true
   when: ansible_distribution_major_version == "8"
