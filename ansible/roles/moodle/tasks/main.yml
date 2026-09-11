@@ -509,8 +509,7 @@
 - name: Reinstaliraj prazne stub biblioteke iz baznog RHEL8 image-a (gd/sodium/capstone lanac)
   ansible.builtin.command:
     cmd: dnf reinstall -y gd3php libavif libaom libdav1d libimagequant capstone
-  register: reinstall_stub_libs
-  changed_when: "'Nothing to do' not in reinstall_stub_libs.stdout"
+  changed_when: true
   when: ansible_distribution_major_version == "8"
 
 # Samo DB primary puni (dijeljenu) bazu - sekundarna instanca HA para gleda
