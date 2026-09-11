@@ -498,25 +498,22 @@
     state: started
     enabled: true
 
-# Samo DB primary puni (dijeljenu) bazu - sekundarna instanca HA para gleda
 # Live otkriveno 11.9.2026: RHA RHEL8 cloud image sadrzi prazne (0-byte) stub
 # biblioteke (libgd, libsodium, libcapstone i cijeli AVIF/AOM/dav1d/imagequant
 # lanac) koje php-gd/php-sodium/opcache dinamicki linkaju - install_database.php
 # puca na "GD extension must be installed" iako je php-gd paket ispravno
 # instaliran, jer su te SISTEMSKE .so datoteke prazne placeholderi u baznoj
-# slici, ne nesto sto nasa rola pokvari. Reinstall vraca prave binarne datoteke.
+# slici, ne nesto sto nasa rola pokvari. NAPOMENA: mora biti pravi "reinstall",
+# ne "state: latest" - paket je vec na najnovijoj verziji po RPM bazi (samo je
+# fizicka .so datoteka prazan placeholder), pa "latest" ne bi nista napravio.
 - name: Reinstaliraj prazne stub biblioteke iz baznog RHEL8 image-a (gd/sodium/capstone lanac)
-  ansible.builtin.dnf:
-    name:
-      - gd3php
-      - libavif
-      - libaom
-      - libdav1d
-      - libimagequant
-      - capstone
-    state: latest
+  ansible.builtin.command:
+    cmd: dnf reinstall -y gd3php libavif libaom libdav1d libimagequant capstone
+  register: reinstall_stub_libs
+  changed_when: "'Nothing to do' not in reinstall_stub_libs.stdout"
   when: ansible_distribution_major_version == "8"
 
+# Samo DB primary puni (dijeljenu) bazu - sekundarna instanca HA para gleda
 # istu bazu pa bi drugi install_database.php samo vidio da je sve vec tu.
 # Na samostalnoj instanci (moodle_db_primary nepostavljen) -> default(true).
 - name: Pokreni Moodle CLI instalaciju (idempotentno - preskace ako su tablice vec tu)
